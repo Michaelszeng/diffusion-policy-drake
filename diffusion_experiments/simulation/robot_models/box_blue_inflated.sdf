@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="box_blue">
+    <link name="box_link_blue">
+      <inertial>
+        <pose>0.0 0.0 0.0 0.0 0.0 0.0</pose>
+        <mass>0.5</mass>
+        <inertia>
+          <ixx>0.00052</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.00052</iyy>
+          <iyz>0</iyz>
+          <izz>0.00085</izz>
+        </inertia>
+      </inertial>
+      <visual name="visual">
+        <pose>0 0 0. 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.125 0.125 0.05</size>
+          </box>
+        </geometry>
+        <material>
+         <diffuse>0 0 1 0.5</diffuse>
+        </material>
+      </visual>
+    </link>
+    <frame name="box_center_blue">
+      <pose relative_to="box_link_blue">0 0 0. 0 0 0</pose>
+    </frame>
+  </model>
+</sdf>
+

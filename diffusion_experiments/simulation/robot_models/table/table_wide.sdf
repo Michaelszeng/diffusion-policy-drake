@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="table">
+    <link name="table_body">
+      <visual name="table_visual">
+        <geometry>
+          <mesh>
+            <uri>table_wide.obj</uri>
+          </mesh>
+        </geometry>
+      </visual>
+      <collision name="table_top">
+        <pose> 0 0 -0.1 0 0 0</pose>
+        <geometry>
+          <box>
+            <!-- <size>5 5 0.2</size>  # original values by Tommy -->
+            <size>1.52 2.2 0.2</size>  # modified by Sid to tightly fit the table
+          </box>
+        </geometry>
+        <!-- From https://github.com/bernhardpg/planning-through-contact/blob/main/planning_through_contact/simulation/models/small_table_hydroelastic.urdf -->
+        <drake:proximity_properties>
+          <drake:rigid_hydroelastic/>
+          <drake:hunt_crossley_dissipation>1.25</drake:hunt_crossley_dissipation>
+          <drake:mesh_resolution_hint>0.005</drake:mesh_resolution_hint>
+          <!-- Both mu_dynamic and mu_static are used in Continuous system.
+            Only mu_dynamic is used in Discrete system.
+          -->
+          <drake:mu_dynamic>0.5</drake:mu_dynamic>
+          <drake:mu_static>0.5</drake:mu_static>
+        </drake:proximity_properties>
+      </collision>
+    </link>
+  </model>
+</sdf>

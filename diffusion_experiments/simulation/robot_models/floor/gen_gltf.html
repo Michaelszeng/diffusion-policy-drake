@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>MuJoCo Floor Exporter</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.172.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.172.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="viewer-container" style="width: 100vw; height: 100vh; display: block;"></div>
+    
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+        import { Reflector } from 'three/addons/objects/Reflector.js';
+        import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+
+        // Set this to one of ["mujoco", "drake", "gray"] to change the theme
+        const theme = "mujoco";
+
+        // Function to create a 1m × 1m MuJoCo-style tile texture
+        function createMuJoCoTileTexture(size = 1024) {
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = size;
+            const context = canvas.getContext('2d');
+
+            const squareSize = size / 2; // Two alternating 0.5m squares
+
+            // https://github.com/google-deepmind/mujoco/blob/main/model/plugin/sdf/scene.xml
+            // https://github.com/google-deepmind/mujoco/blob/main/mjx/mujoco/mjx/test_data/shadow_hand/scene_right.xml
+            const mujocoDarkBlue = new THREE.Color(.1, 0.15, 0.2).multiplyScalar(0.3);
+            // const mujocoDarkBlue = new THREE.Color(.1, .2, .3).multiplyScalar(0.3);
+            const mujocoLightBlue = new THREE.Color(.2, .3, .4).multiplyScalar(0.3);
+
+            // https://github.com/RobotLocomotion/drake/blob/d66a184790138b450670a5241aaa3340daaac4a0/doc/pydrake/_static/css/custom.css#L6C18-L6C24
+            const mitRed = new THREE.Color( 0x750014 );
+            const toyotaRed = new THREE.Color( 0xEB0A1E );
+
+            const rgbCross = new THREE.Color(1., 1., 1.).multiplyScalar(0.8);
+
+            const mujocoThemeColors = [
+                mujocoLightBlue,
+                mujocoDarkBlue,
+            ]
+
+            const drakeThemeColors = [ 
+                // new THREE.Color(mitRed).multiplyScalar(0.3),  // MIT red
+                new THREE.Color(toyotaRed).multiplyScalar(0.08),  // Toyota red
+                new THREE.Color(1, 1, 1).multiplyScalar(0.08),  // gray
+            ];
+
+            const grayThemeColors = [ 
+                new THREE.Color(1, 1, 1).multiplyScalar(0.25),  // Light gray
+                new THREE.Color(1, 1, 1).multiplyScalar(0.08),  // Dark gray
+            ];
+
+            const colors = 
+                theme === "mujoco" ? mujocoThemeColors :
+                theme === "drake" ? drakeThemeColors :
+                grayThemeColors
+            ;
+
+            // Draw checkerboard pattern (only 2x2 squares)
+            for (let y = 0; y < 2; y++) {
+                for (let x = 0; x < 2; x++) {
+                    context.fillStyle = colors[(x + y) % 2].getStyle();
+                    context.fillRect(x * squareSize, y * squareSize, squareSize, squareSize);
+                }
+            }
+
+            // Draw white grid lines at 1m intervals
+            context.strokeStyle = rgbCross.getStyle();
+            context.lineWidth = 4;
+            context.strokeRect(0, 0, size, size);
+
+            return canvas;
+        }
+
+        // Create scene
+        const scene = new THREE.Scene();
+
+        // Create a 20m x 20m floor plane
+        const floorSize = 20;  // in meters
+        const floorGeometry = new THREE.PlaneGeometry(floorSize, floorSize, 1, 1);
+
+        // Create texture
+        const floorCanvas = createMuJoCoTileTexture();
+        const floorTexture = new THREE.CanvasTexture(floorCanvas);
+        floorTexture.wrapS = THREE.RepeatWrapping;
+        floorTexture.wrapT = THREE.RepeatWrapping;
+        floorTexture.repeat.set(floorSize, floorSize);
+
+        // Save texture as an image
+        function exportTexture() {
+            const dataUrl = floorCanvas.toDataURL('image/jpeg', 0.9);
+            downloadFile(dataUrl.split(',')[1], `${theme}_floor_texture.jpg`, 'image/jpeg', true);
+        }
+
+        const floorMaterial = new THREE.MeshStandardMaterial({
+            map: floorTexture,
+            roughness: 1.0,
+            transparent: true,
+            opacity: 0.8
+        });
+
+        // Create the floor mesh
+        const floorMesh = new THREE.Mesh(floorGeometry, floorMaterial);
+        floorMesh.rotation.x = -Math.PI / 2;
+        scene.add(floorMesh);
+
+        // Export the scene to GLTF
+        function exportGLTF() {
+            return new Promise((resolve) => {
+                const exporter = new GLTFExporter();
+                exporter.parse(
+                    scene,
+                    function (gltf) {
+                        const gltfStr = JSON.stringify(gltf, null, 2);
+                        downloadFile(gltfStr, `${theme}_floor.gltf`, 'application/json');
+                        resolve(gltfStr);
+                    },
+                    { binary: false }
+                );
+            });
+        }
+
+        // Helper function to download files
+        function downloadFile(data, filename, mimeType, isBase64 = false) {
+            const blob = isBase64 ? b64toBlob(data, mimeType) : new Blob([data], { type: mimeType });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Convert base64 to Blob
+        function b64toBlob(b64Data, contentType) {
+            const byteCharacters = atob(b64Data);
+            const byteArrays = [];
+            for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+                const slice = byteCharacters.slice(offset, offset + 512);
+                const byteNumbers = new Array(slice.length);
+                for (let i = 0; i < slice.length; i++) {
+                    byteNumbers[i] = slice.charCodeAt(i);
+                }
+                byteArrays.push(new Uint8Array(byteNumbers));
+            }
+            return new Blob(byteArrays, { type: contentType });
+        }
+
+        // Export the model and texture
+        exportGLTF().then(gltfStr => {
+            const viewerContainer = document.getElementById('viewer-container');
+            viewerContainer.style.display = 'block';
+            
+            // Create renderer
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(viewerContainer.clientWidth, viewerContainer.clientHeight);
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.0;
+            viewerContainer.appendChild(renderer.domElement);
+            
+            // Create scene for visualization
+            const viewerScene = new THREE.Scene();
+            
+            // Create camera with better positioning to see the entire floor
+            const camera = new THREE.PerspectiveCamera(
+                45, 
+                viewerContainer.clientWidth / viewerContainer.clientHeight, 
+                0.1, 
+                1000
+            );
+            camera.position.set(0, 20, 15); // Position higher and further back
+            camera.lookAt(0, 0, 0);
+            
+            // Add orbit controls
+            const controls = new OrbitControls(camera, renderer.domElement);
+            controls.target.set(0, 0, 0);
+            controls.maxPolarAngle = Math.PI / 2 - 0.1; // Prevent camera from going below the floor
+            controls.minDistance = 5;
+            controls.maxDistance = 50;
+            controls.update();
+            
+            // Add environment lighting
+            const pmremGenerator = new THREE.PMREMGenerator(renderer);
+            const environmentTexture = pmremGenerator.fromScene(new RoomEnvironment()).texture;
+            viewerScene.environment = environmentTexture;
+            viewerScene.background = new THREE.Color(0x191919);
+            pmremGenerator.dispose();
+            
+            // Add lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+            viewerScene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8 * Math.PI);
+            directionalLight.position.set(0.5, 1, 0.866);
+            camera.add(directionalLight);
+            viewerScene.add(camera);
+            
+            // Add dat.GUI for lighting controls
+            const gui = new GUI();
+            
+            // Ambient light controls
+            const ambientLightFolder = gui.addFolder('Ambient Light');
+            const ambientLightParams = {
+                color: new THREE.Color(0.3, 0.5, 0.7),
+                intensity: 0.3
+            };
+            
+            ambientLightFolder.addColor(ambientLightParams, 'color').onChange((value) => {
+                ambientLight.color.set(value);
+            });
+            
+            ambientLightFolder.add(ambientLightParams, 'intensity', 0, 2).onChange((value) => {
+                ambientLight.intensity = value;
+            });
+            
+            // Directional light controls
+            const directionalLightFolder = gui.addFolder('Directional Light');
+            const directionalLightParams = {
+                color: '#ffffff',
+                intensity: 0.8 * Math.PI,
+                positionX: 0.5,
+                positionY: 1,
+                positionZ: 0.866
+            };
+            
+            directionalLightFolder.addColor(directionalLightParams, 'color').onChange((value) => {
+                directionalLight.color.set(value);
+            });
+            
+            directionalLightFolder.add(directionalLightParams, 'intensity', 0, 5).onChange((value) => {
+                directionalLight.intensity = value;
+            });
+            
+            const directionalPositionFolder = directionalLightFolder.addFolder('Position');
+            
+            directionalPositionFolder.add(directionalLightParams, 'positionX', -5, 5).onChange((value) => {
+                directionalLight.position.x = value;
+            });
+            
+            directionalPositionFolder.add(directionalLightParams, 'positionY', -5, 5).onChange((value) => {
+                directionalLight.position.y = value;
+            });
+            
+            directionalPositionFolder.add(directionalLightParams, 'positionZ', -5, 5).onChange((value) => {
+                directionalLight.position.z = value;
+            });
+            
+            // Open folders by default
+            gui.open();
+            ambientLightFolder.open();
+            directionalLightFolder.open();
+            
+            // Load the GLTF data
+            const loader = new GLTFLoader();
+            const gltfBlob = new Blob([gltfStr], { type: 'application/json' });
+            const gltfURL = URL.createObjectURL(gltfBlob);
+            
+            loader.load(gltfURL, (gltf) => {
+                // Move the floor up by adjusting its position
+                gltf.scene.position.y = 0; // Reset to ground level
+                
+                viewerScene.add(gltf.scene);
+                URL.revokeObjectURL(gltfURL);
+            });
+            
+            // Add a reflector plane to the viewer scene
+            const reflectorGeometry = new THREE.PlaneGeometry(floorSize, floorSize);
+            const groundMirror = new Reflector(reflectorGeometry, {
+                clipBias: 0.003,
+                textureWidth: 2048,
+                textureHeight: 2048,
+                color: 0x889999
+            });
+            groundMirror.position.y = -0.01; // Position slightly below the floor
+            groundMirror.rotateX(-Math.PI / 2);
+            viewerScene.add(groundMirror);
+            
+            // Add a cube with different colored faces above the floor to demonstrate reflection
+            const boxGeometry = new THREE.BoxGeometry(2, 2, 2);
+            
+            // Create materials for each face with different colors
+            const boxMaterials = [
+                new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 0.2, metalness: 0.3 }), // Right face - red
+                new THREE.MeshStandardMaterial({ color: 0x00ff00, roughness: 0.2, metalness: 0.3 }), // Left face - green
+                new THREE.MeshStandardMaterial({ color: 0x0000ff, roughness: 0.2, metalness: 0.3 }), // Top face - blue
+                new THREE.MeshStandardMaterial({ color: 0xffff00, roughness: 0.2, metalness: 0.3 }), // Bottom face - yellow
+                new THREE.MeshStandardMaterial({ color: 0xff00ff, roughness: 0.2, metalness: 0.3 }), // Front face - magenta
+                new THREE.MeshStandardMaterial({ color: 0x00ffff, roughness: 0.2, metalness: 0.3 })  // Back face - cyan
+            ];
+            
+            // Create a mesh with the geometry and materials
+            const coloredCube = new THREE.Mesh(boxGeometry, boxMaterials);
+            coloredCube.position.set(0, 3, 0); // Position above the floor
+            viewerScene.add(coloredCube);
+            
+            // Add animation to the cube to make reflection more noticeable
+            function animate() {
+                requestAnimationFrame(animate);
+                
+                // Make the cube hover up and down
+                coloredCube.position.y = 3 + Math.sin(Date.now() * 0.001) * 0.5;
+                // Rotate the cube slowly to show all faces
+                coloredCube.rotation.x += 0.005;
+                coloredCube.rotation.y += 0.01;
+                
+                controls.update();
+                renderer.render(viewerScene, camera);
+            }
+            
+            animate();
+            
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                camera.aspect = viewerContainer.clientWidth / viewerContainer.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(viewerContainer.clientWidth, viewerContainer.clientHeight);
+            });
+        });
+        exportTexture();
+    </script>
+</body>
+</html>

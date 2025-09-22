@@ -1,0 +1,32 @@
+obstacle_1: 
+  min_x: 0.0
+  max_x: 0.3
+  min_y: 0.5
+  max_y: 0.7
+obstacle_2: 
+  min_x: 0.35
+  max_x: 0.65
+  min_y: 0.5
+  max_y: 0.7
+start_box_1: 
+  min_x: 0.22
+  max_x: 0.3
+  min_y: 0.4
+  max_y: 0.48
+start_box_2: 
+  min_x: 0.35
+  max_x: 0.43
+  min_y: 0.4
+  max_y: 0.48
+goal_1: 
+  x: 0.225
+  y: 0.75 
+goal_2: 
+  x: 0.425
+  y: 0.75
+x_limits: 
+  min: 0.0
+  max: 0.65
+y_limits: 
+  min: 0.2
+  max: 0.8

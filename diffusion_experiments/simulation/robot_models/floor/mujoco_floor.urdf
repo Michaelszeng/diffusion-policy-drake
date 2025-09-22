@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<robot name="simpleplane">
+    <!-- Plane -->
+    <link name="base">
+        <visual> 
+            <geometry> 
+                <mesh filename="mujoco_floor.gltf"/>
+            </geometry>
+        </visual>
+        <!-- <collision>
+             <geometry> 
+                <box size="20 20 0.01"/>
+            </geometry>
+            NOTE: This should be -0.005, but is set a bit lower to avoid
+            spurious collisions.
+            <origin rpy="0 0 0" xyz="0 0 -0.015"/>
+        </collision> -->
+        <inertial> 
+            <mass value="0"/>
+            <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+        </inertial> 
+        <contact> 
+            <lateral_friction value="4"/>
+        </contact>
+    </link> 
+</robot>
