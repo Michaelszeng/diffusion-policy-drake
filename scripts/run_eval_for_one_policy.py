@@ -6,17 +6,13 @@ from diffusion_experiments.simulation.grasp_setup_diffusion_sim import IiwaTable
 
 # export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 
+cfg = {
+    "scenario_path": "diffusion_experiments/simulation/robot_models/two_bin_task_2.dmd.yaml",
+    "checkpoint_path": "/home/michzeng/diffusion-search-learning/data/outputs/grasp_two_bins_flat/same_middle_same_return/basic_training/2_obs/checkpoints/latest.ckpt",
+    "device": "cuda:0",
+}
+
 if __name__ == "__main__":
-    import sys
-
-    sys.path.insert(0, "../diffusion-search-learning")
-
-    cfg = {
-        "scenario_path": "diffusion_experiments/simulation/robot_models/two_bin_task_2.dmd.yaml",
-        "checkpoint_path": "/home/michzeng/diffusion-search-learning/data/outputs/grasp_two_bins_flat/same_middle_same_return/basic_training/2_obs/checkpoints/latest.ckpt",
-        "device": "cuda:0",
-    }  # this works s
-
     hydra_cfg = OmegaConf.create(cfg)
 
     eval_from_left_box = True

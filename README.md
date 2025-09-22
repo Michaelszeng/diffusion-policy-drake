@@ -1,6 +1,6 @@
 # Diffusion Policy Inference in Drake
 
-Michael's personal repo for testing diffusion policies trained in [https://github.com/Michaelszeng/diffusion-policy-experiments](my `diffusion-policy-experiment` repo) with the Robot Locomotion Group, based off work done by Abhinav Agarwal and Adam Wei.
+Michael's personal repo for testing and collecting training data for diffusion policies trained in [https://github.com/Michaelszeng/diffusion-policy-experiments](my `diffusion-policy-experiment` repo) using Drake. Work done for the Robot Locomotion Group, based off work done by Abhinav Agarwal and Adam Wei.
 
 ## Installation
 
