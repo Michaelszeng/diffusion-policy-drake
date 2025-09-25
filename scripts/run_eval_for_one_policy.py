@@ -4,11 +4,9 @@ from pydrake.all import HPolyhedron, RigidTransform, RotationMatrix, StartMeshca
 
 from diffusion_experiments.simulation.grasp_setup_diffusion_sim import IiwaTableBlockDiffusionDiffIK
 
-# export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-
 cfg = {
-    "scenario_path": "diffusion_experiments/simulation/robot_models/two_bin_task_2.dmd.yaml",
-    "checkpoint_path": "/home/michzeng/diffusion-search-learning/data/outputs/grasp_two_bins_flat/same_middle_same_return/basic_training/2_obs/checkpoints/latest.ckpt",
+    "scenario_path": "diffusion_experiments/simulation/robot_models/canonical_planar_pushing.dmd.yaml",
+    "checkpoint_path": "diffusion-policy/data/outputs/planar_pushing/2_obs/checkpoints/epoch=0025-val_loss=0.0215-val_ddim_mse=0.0005.ckpt",
     "device": "cuda:0",
 }
 
