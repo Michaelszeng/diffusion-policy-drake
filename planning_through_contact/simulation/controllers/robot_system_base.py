@@ -12,7 +12,9 @@ class RobotSystemBase(Diagram):
     def add_meshcat(self, meshcat: Meshcat) -> None:
         self._meshcat = meshcat
 
-    def pre_sim_callback(self, root_context): ...
+    def pre_sim_callback(self, root_context):
+        """Callback executed before simulation starts to perform station initialization using the root Context."""
+        ...
 
     @property
     @abstractmethod

@@ -23,7 +23,6 @@ from manipulation_copy.station import (
     JointStiffnessDriver,
     LoadScenario,
     MakeHardwareStation,
-    Scenario,
 )
 from planning_through_contact.simulation.planar_pushing.planar_pushing_sim_config import PlanarPushingSimConfig
 from planning_through_contact.simulation.sim_utils import (
@@ -47,14 +46,28 @@ from .robot_system_base import RobotSystemBase
 
 
 def diagram_visualize_connections(diagram: Diagram, file: Union[BinaryIO, str]) -> None:
-    """
-    Create SVG file of system diagram.
-    """
+    """Create SVG file of system diagram."""
     if type(file) is str:
         file = open(file, "bw")
     graphviz_str = diagram.GetGraphvizString()
     svg_data = pydot.graph_from_dot_data(graphviz_str)[0].create_svg()
     file.write(svg_data)
+
+
+def set_meshcat_camera_pose(meshcat: Meshcat, sim_config: PlanarPushingSimConfig):
+    """Simpler helper function to set the initial camera pose for meshcat visualization"""
+    zoom = 1.8
+    camera_in_world = [
+        sim_config.slider_goal_pose.x,
+        (sim_config.slider_goal_pose.y - 1) / zoom,
+        1.5 / zoom,
+    ]
+    target_in_world = [
+        sim_config.slider_goal_pose.x,
+        sim_config.slider_goal_pose.y,
+        0,
+    ]
+    meshcat.SetCameraPose(camera_in_world, target_in_world)
 
 
 class IiwaHardwareStation(RobotSystemBase):
@@ -73,32 +86,29 @@ class IiwaHardwareStation(RobotSystemBase):
         else:
             scenario_name = "accuracy-optimized"
 
-        if sim_config.domain_randomization_color_range <= 0.0:
+        if sim_config.domain_randomization_color_range <= 0.0:  # No domain randomization
             scenario_file_name = f"{models_folder}/planar_pushing_iiwa_scenario.yaml"
 
             def add_slider_to_parser(parser):
+                """Simple parser pre-finalize callback to add slider to parser."""
                 slider_sdf_url = GetSliderUrl(sim_config)
                 (slider,) = parser.AddModels(url=slider_sdf_url)
                 return
-
-        else:
+        else:  # Domain randomization
             scenario_file_name = f"{models_folder}/planar_pushing_iiwa_scenario_randomized.yaml"
 
-            # table_grey = np.random.uniform(0.3, 0.95)
-            # slider_grey = np.random.uniform(0.1, 0.25)
-            table_grey = 0.7
-            slider_grey = 0.1
+            table_grey = np.random.uniform(0.3, 0.95)
+            slider_grey = np.random.uniform(0.1, 0.25)
             color_range = sim_config.domain_randomization_color_range
 
-            # randomize pusher and table
             randomize_pusher(color_range=color_range)
             randomize_table(
                 default_color=[table_grey, table_grey, table_grey],
                 color_range=color_range,
             )
 
-            # randomize slider
             def add_slider_to_parser(parser):
+                """Simple parser pre-finalize callback to add slider, with domain randomization, to parser."""
                 sdf_file = get_slider_sdf_path(sim_config, models_folder)
                 safe_parse = etree.XMLParser(recover=True)
                 tree = etree.parse(sdf_file, safe_parse)
@@ -116,16 +126,17 @@ class IiwaHardwareStation(RobotSystemBase):
                 (slider,) = parser.AddModelsFromString(sdf_as_string, "sdf")
 
         scenario = LoadScenario(filename=scenario_file_name, scenario_name=scenario_name)
-        # Add cameras to scenario
+
+        # Add cameras to scenario (they aren't included in the scenario yaml file)
         if sim_config.camera_configs:
             for camera_config in sim_config.camera_configs:
                 scenario.cameras[camera_config.name] = camera_config
 
-        self._check_scenario_and_sim_config_consistent(scenario, sim_config)
-
         builder = DiagramBuilder()
 
-        ## Add systems
+        ################################################################################################################
+        ### Add systems
+        ################################################################################################################
 
         # Kuka station
         self.station = builder.AddSystem(
@@ -143,17 +154,10 @@ class IiwaHardwareStation(RobotSystemBase):
             self._scene_graph = self.station.scene_graph()
             self.slider = external_mbp.GetModelInstanceByName(sim_config.slider.name)
 
-        # Iiwa Planer
-        # Delay between starting the simulation and the iiwa starting to go to the home position
-        INITIAL_DELAY = 0.5
-        # Delay between the iiwa reaching home position and pusher starting to follow the planned pushing trajectory
-        WAIT_PUSH_DELAY = 1.0
+        # Iiwa Planner state machine
+        INITIAL_DELAY = 0.5  # Delay between starting simulation and iiwa starting to go to home position
+        WAIT_PUSH_DELAY = 1.0  # Delay between iiwa reaching home position and pusher starting to follow pushing traj
         assert sim_config.delay_before_execution > INITIAL_DELAY + WAIT_PUSH_DELAY
-
-        # True velocity limits for the IIWA14 and IIWA7 (in rad, rounded down to the first decimal)
-        # IIWA14_VELOCITY_LIMITS = np.array([1.4, 1.4, 1.7, 1.3, 2.2, 2.3, 2.3])
-        IIWA7_VELOCITY_LIMITS = np.array([1.7, 1.7, 1.7, 2.2, 2.4, 3.1, 3.1])
-        velocity_limit_factor = sim_config.joint_velocity_limit_factor
         self._planner = builder.AddNamedSystem(
             "IiwaPlanner",
             IiwaPlanner(
@@ -164,12 +168,15 @@ class IiwaHardwareStation(RobotSystemBase):
             ),
         )
 
-        # Diff IK
+        # Diff IK "position controller" to follow output of diffusion policy
         EE_FRAME = "pusher_end"
         robot = LoadRobotOnly(sim_config, robot_plant_file="iiwa_controller_plant.yaml")
         self.robot = robot
         ik_params = DifferentialInverseKinematicsParameters(robot.num_positions(), robot.num_velocities())
         ik_params.set_time_step(sim_config.time_step)
+        # True velocity limits for the IIWA14 and IIWA7 (in rad, rounded down to the first decimal)
+        # IIWA14_VELOCITY_LIMITS = np.array([1.4, 1.4, 1.7, 1.3, 2.2, 2.3, 2.3])
+        IIWA7_VELOCITY_LIMITS = np.array([1.7, 1.7, 1.7, 2.2, 2.4, 3.1, 3.1])
         velocity_limit_factor = sim_config.joint_velocity_limit_factor
         ik_params.set_joint_velocity_limits(
             (
@@ -189,13 +196,14 @@ class IiwaHardwareStation(RobotSystemBase):
             ),
         )
 
+        # Converter between (x,y) to RigidTransform
         planar_translation_to_rigid_tranform = builder.AddSystem(
             PlanarTranslationToRigidTransformSystem(z_dist=sim_config.pusher_z_offset)
         )
 
+        # Converter from desired position q into desired state (q, q_dot)
         driver_config = scenario.model_drivers["iiwa"]
         if isinstance(driver_config, JointStiffnessDriver) or isinstance(driver_config, InverseDynamicsDriver):
-            # Turn desired position into desired state
             self._state_interpolator = builder.AddNamedSystem(
                 "StateInterpolatorWithDiscreteDerivative",
                 StateInterpolatorWithDiscreteDerivative(
@@ -208,8 +216,8 @@ class IiwaHardwareStation(RobotSystemBase):
         switch = builder.AddNamedSystem("switch", PortSwitch(robot.num_positions()))
         run_flag_system = builder.AddSystem(RunFlagSystem(true_port_index=2))
 
+        # Iiwa state estimated multiplexer ; separate estimated state to position and velocity
         if isinstance(driver_config, IiwaDriver):
-            # Iiwa state estimated multiplexer
             iiwa_state_estimated_mux = builder.AddSystem(
                 Multiplexer(input_sizes=[robot.num_positions(), robot.num_velocities()])
             )
@@ -223,7 +231,9 @@ class IiwaHardwareStation(RobotSystemBase):
             ),
         )
 
-        ## Connect systems
+        ################################################################################################################
+        ### Connect systems
+        ################################################################################################################
 
         # Inputs to diff IK
         builder.Connect(
@@ -371,22 +381,11 @@ class IiwaHardwareStation(RobotSystemBase):
                     f"rgbd_sensor_{camera_config.name}",
                 )
 
-        # Set the initial camera pose
-        zoom = 1.8
-        camera_in_world = [
-            sim_config.slider_goal_pose.x,
-            (sim_config.slider_goal_pose.y - 1) / zoom,
-            1.5 / zoom,
-        ]
-        target_in_world = [
-            sim_config.slider_goal_pose.x,
-            sim_config.slider_goal_pose.y,
-            0,
-        ]
-        self._meshcat.SetCameraPose(camera_in_world, target_in_world)
-
         builder.BuildInto(self)
 
+        set_meshcat_camera_pose(self._meshcat, self._sim_config)  # For meshcat visualization
+
+        # Add triad to visualize pusher end effector
         AddMultibodyTriad(
             self.station.GetSubsystemByName("plant").GetFrameByName("pusher_end"),
             self.station.scene_graph(),
@@ -394,22 +393,18 @@ class IiwaHardwareStation(RobotSystemBase):
             radius=0.0025,
             opacity=0.25,
         )
+        # Save diagram to SVG file for debugging
         diagram_visualize_connections(self, "diagram.svg")
-
-    def _check_scenario_and_sim_config_consistent(self, scenario: Scenario, sim_config: PlanarPushingSimConfig):
-        # Check that the duplicated config between scenario and sim config are consistent
-        ...
 
     def pre_sim_callback(self, root_context: Context) -> None: ...
 
     @property
     def robot_model_name(self) -> str:
-        """The name of the robot model."""
         return "iiwa"
 
     @property
     def slider_model_name(self) -> str:
-        """The name of the robot model."""
+        """The name of the object being pushed (i.e. t_pusher, box, arbitrary)."""
         if self._sim_config.slider.name == "box":
             return "box"
         elif self._sim_config.slider.name in ["tee", "t_pusher"]:
