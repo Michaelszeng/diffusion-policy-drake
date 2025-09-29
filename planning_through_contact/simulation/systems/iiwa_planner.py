@@ -35,8 +35,62 @@ class IiwaPlannerMode(Enum):
 
 class IiwaPlanner(LeafSystem):
     """
-    Planner that manages the iiwa going to the start position, waiting and then pushing according to the desired planar
-    position source.
+    Finite State Machine (FSM) planner that manages the iiwa actions.
+
+    FSM Overview:
+    - States (IiwaPlannerMode):
+        - PLAN_GO_PUSH_START: Plan a trajectory from current iiwa configuration to the desired push start configuration.
+        - GO_PUSH_START: Execute the planned trajectory to reach the push start configuration.
+        - WAIT_PUSH: Hold at the push start configuration for a brief delay before handing off to pushing.
+        - PUSHING: Handoff state where the planner yields control to DiffIK/policy (no joint command output here).
+
+    - Timing and state bookkeeping (context abstract state):
+        - _mode_index: Leafsystem state index for urrent FSM mode (IiwaPlannerMode).
+        - _times_index: Leafsystem state index for Dict[str, float] with keys:
+            - "initial": initial delay start time threshold before first planning.
+            - "go_push_start_initial": time when the GO_PUSH_START trajectory begins execution.
+            - "go_push_start_final": absolute time when GO_PUSH_START should be complete.
+            - "wait_push_final": absolute time when WAIT_PUSH should be complete.
+            - All times are absolute times (relative to start of simulation).
+
+    - Update() logic:
+        - PLAN_GO_PUSH_START:
+            - When current_time > times["initial"], call PlanGoPushStart(), which:
+                - Computes q_goal via get_desired_start_pos() (IK to reach pusher start pose).
+                - Builds a trajectory q_traj from current q_start to q_goal (via GCS + Toppra retiming).
+                - Sets times["go_push_start_initial"], times["go_push_start_final"], times["wait_push_final"].
+                - Transitions mode → GO_PUSH_START.
+            - Otherwise, remain in PLAN_GO_PUSH_START and output q0.
+
+        - GO_PUSH_START:
+            - If current_time > times["go_push_start_final"], transition → WAIT_PUSH.
+            - Else, keep following the time-parameterized q_traj.
+
+        - WAIT_PUSH:
+            - Hold the push-start posture (q_goal).
+            - If current_time > times["wait_push_final"], transition → PUSHING.
+
+        - PUSHING:
+            - Planner no longer produces joint commands (CalcIiwaPosition asserts in this mode).
+            - Control is expected to switch to DiffIK/policy (see CalcControlMode output).
+
+        - reset_planner:
+            - If this flag is set (i.e. by a timeout or failed pushing attempt), then reinitialize:
+                - Clear the flag, set times["initial"] = now, snapshot current q into q0.
+                - Immediately re-plan via PlanGoPushStart().
+
+    - Outputs:
+        - CalcControlMode:
+            - PUSHING → InputPortIndex(2) (DiffIK/policy mode).
+            - Else (PLAN_GO_PUSH_START, GO_PUSH_START, WAIT_PUSH) → InputPortIndex(1) (planner/joint command mode).
+        - CalcDiffIKReset:
+            - PUSHING → False (do not reset DiffIK).
+            - Else → True (reset DiffIK while planning/moving/holding).
+        - CalcIiwaPosition (joint position command):
+            - PLAN_GO_PUSH_START → current q0.
+            - GO_PUSH_START → q_traj evaluated at (now - go_push_start_initial).
+            - WAIT_PUSH → push_start_pos (q_goal).
+            - PUSHING → not used; call is invalid by design.
     """
 
     def __init__(
@@ -76,13 +130,13 @@ class IiwaPlanner(LeafSystem):
         self.DeclareInitializationDiscreteUpdateEvent(self.Initialize)
         self.DeclarePeriodicUnrestrictedUpdateEvent(0.1, 0.0, self.Update)
 
-        self._internal_model = robot_plant
+        self.reset_planner = False  # Flag to stop pushing and reset the planner
 
-        self._sim_config = sim_config
+        self._plant = robot_plant  # i.e. for solving IK, GCS, etc.
 
-        self.reset_planner = False
+        self._sim_config = sim_config  # For accessing start pose
 
-        self.vel_limits = 1 * np.ones(7)  # 0.15
+        self.vel_limits = 1 * np.ones(7)
         self.accel_limits = 1 * np.ones(7)
 
     def Update(self, context, state):
@@ -97,8 +151,6 @@ class IiwaPlanner(LeafSystem):
                 self.PlanGoPushStart(context, state)
             return
         elif mode == IiwaPlannerMode.GO_PUSH_START:
-            traj_q = context.get_mutable_abstract_state(int(self._traj_q_index)).get_value()
-
             if current_time > times["go_push_start_final"]:
                 # We have reached the end of the GoPushStart trajectory.
                 state.get_mutable_abstract_state(int(self._mode_index)).set_value(IiwaPlannerMode.WAIT_PUSH)
@@ -125,17 +177,19 @@ class IiwaPlanner(LeafSystem):
                 self.get_input_port(int(self._iiwa_position_measured_index)).Eval(context)
             )
             self.PlanGoPushStart(context, state)
-
-        # elif mode == IiwaPlannerMode.PUSHING:
-        #     current_pos = self.get_input_port(
-        #         self._iiwa_position_measured_index
-        #     ).Eval(context)
-        #     logger.debug(f"PUSHING: time {context.get_time()} Current position: {current_pos}")
+        elif mode == IiwaPlannerMode.PUSHING:
+            # Just logging current position
+            current_pos = self.get_input_port(self._iiwa_position_measured_index).Eval(context)
+            # logger.debug(f"PUSHING: time {context.get_time()} Current position: {current_pos}")
 
     def PlanGoPushStart(self, context, state):
         logger.debug(f"PlanGoPushStart at time {context.get_time()}.")
         q_start = copy(context.get_discrete_state(self._q0_index).get_value())
-        q_goal = self.get_desired_start_pos()
+        q_goal = solve_ik(
+            self._plant,
+            pose=self._sim_config.pusher_start_pose.to_pose(self._sim_config.pusher_z_offset),
+            default_joint_positions=self._sim_config.default_joint_positions,
+        )
 
         q_traj = self.create_go_push_start_traj(q_goal, q_start)
         state.get_mutable_abstract_state(int(self._traj_q_index)).set_value(q_traj)
@@ -191,41 +245,27 @@ class IiwaPlanner(LeafSystem):
     def reset(self):
         self.reset_planner = True
 
-    def set_toppra_limits(self, vel_limits, accel_limits):
-        self.vel_limits = vel_limits
-        self.accel_limits = accel_limits
-
-    def get_desired_start_pos(self):
-        # Set iiwa starting position
-        global desired_pose
-        desired_pose = self._sim_config.pusher_start_pose.to_pose(self._sim_config.pusher_z_offset)
-        start_joint_positions = solve_ik(
-            self._internal_model,
-            pose=desired_pose,
-            default_joint_positions=self._sim_config.default_joint_positions,
-        )
-
-        return start_joint_positions
-
-    @staticmethod
-    def make_traj_toppra(traj, plant, vel_limits, accel_limits, num_grid_points=1000):
-        vel_limits *= 10
-        accel_limits *= 10
-        toppra = Toppra(
-            traj,
-            plant,
-            np.linspace(traj.start_time(), traj.end_time(), num_grid_points),
-        )
-        toppra.AddJointVelocityLimit(-vel_limits, vel_limits)
-        toppra.AddJointAccelerationLimit(-accel_limits, accel_limits)
-        time_traj = toppra.SolvePathParameterization()
-        return traj
-        return PathParameterizedTrajectory(traj, time_traj)
-
     def create_go_push_start_traj(self, q_goal, q_start):
-        plant = self._internal_model
-        num_positions = plant.num_positions()
+        """
+        Creates a trajectory for the iiwa to go from its current position to the desired start position.
 
+        q_goal: Desired start position
+        q_start: Current position
+        """
+
+        def make_traj_toppra(traj, plant, vel_limits, accel_limits, num_grid_points=1000):
+            """Helper to retime trajectory using Toppra."""
+            toppra = Toppra(
+                traj,
+                plant,
+                np.linspace(traj.start_time(), traj.end_time(), num_grid_points),
+            )
+            toppra.AddJointVelocityLimit(-vel_limits, vel_limits)
+            toppra.AddJointAccelerationLimit(-accel_limits, accel_limits)
+            time_traj = toppra.SolvePathParameterization()
+            return PathParameterizedTrajectory(traj, time_traj)
+
+        plant = self._plant
         gcs = GcsTrajectoryOptimization(plant.num_positions())
 
         workspace = gcs.AddRegions(
@@ -235,15 +275,12 @@ class IiwaPlanner(LeafSystem):
             60,
         )
 
-        logger.debug(f"q_start = {q_start}")
-        logger.debug(f"q_goal = {q_goal}")
-
         vel_limits = self.vel_limits
         accel_limits = self.accel_limits
         # Set non-zero h_min for start and goal to enforce zero velocity.
         start = gcs.AddRegions([Point(q_start)], order=1, h_min=0.1)
         goal = gcs.AddRegions([Point(q_goal)], order=1, h_min=0.1)
-        goal.AddVelocityBounds([0] * num_positions, [0] * num_positions)
+        goal.AddVelocityBounds([0] * plant.num_positions(), [0] * plant.num_positions())
         gcs.AddEdges(start, workspace)
         gcs.AddEdges(workspace, goal)
         gcs.AddTimeCost()
@@ -255,6 +292,6 @@ class IiwaPlanner(LeafSystem):
         logger.debug(f"result.is_success(): {result.is_success()}")
 
         if result.is_success():
-            return IiwaPlanner.make_traj_toppra(traj, plant, vel_limits=vel_limits, accel_limits=accel_limits)
+            return make_traj_toppra(traj, plant, vel_limits=vel_limits, accel_limits=accel_limits)
         else:
             return PiecewisePolynomial.FirstOrderHold([0, 1], np.column_stack((q_start, q_goal)))

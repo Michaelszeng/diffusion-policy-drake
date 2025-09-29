@@ -25,10 +25,7 @@ from manipulation_copy.station import (
     MakeHardwareStation,
     Scenario,
 )
-from planning_through_contact.simulation.planar_pushing.iiwa_planner import IiwaPlanner
-from planning_through_contact.simulation.planar_pushing.planar_pushing_sim_config import (
-    PlanarPushingSimConfig,
-)
+from planning_through_contact.simulation.planar_pushing.planar_pushing_sim_config import PlanarPushingSimConfig
 from planning_through_contact.simulation.sim_utils import (
     GetSliderUrl,
     LoadRobotOnly,
@@ -39,9 +36,8 @@ from planning_through_contact.simulation.sim_utils import (
     randomize_pusher,
     randomize_table,
 )
-from planning_through_contact.simulation.systems.joint_velocity_clamp import (
-    JointVelocityClamp,
-)
+from planning_through_contact.simulation.systems.iiwa_planner import IiwaPlanner
+from planning_through_contact.simulation.systems.joint_velocity_clamp import JointVelocityClamp
 from planning_through_contact.simulation.systems.planar_translation_to_rigid_transform_system import (
     PlanarTranslationToRigidTransformSystem,
 )

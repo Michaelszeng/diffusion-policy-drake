@@ -127,7 +127,7 @@ class DiffusionPolicyController(LeafSystem):
     def _load_policy_from_checkpoint(self, checkpoint: str):
         # load checkpoint
         payload = torch.load(open(checkpoint, "rb"), pickle_module=dill)
-        self._cfg = payload["cfg"]
+        self._cfg = payload["cfg"]  # Retrieve OmegaConf used during training
 
         # Override diffusion policy config
         for key, value in self._cfg_overrides.items():
@@ -160,6 +160,43 @@ class DiffusionPolicyController(LeafSystem):
             self._policy.set_normalizer(self._normalizer)
         self._policy.to(self._device)
         self._policy.eval()
+
+    def _deque_to_dict(self, obs_deque: deque, image_deque_dict: dict, target: np.ndarray):
+        state_tensor = torch.cat([torch.from_numpy(obs) for obs in obs_deque], dim=0).reshape(
+            self._B, self._obs_horizon, self._state_dim
+        )
+        target_tensor = torch.from_numpy(target).reshape(1, self._target_dim)  # 1, D_t
+
+        data = {
+            "obs": {
+                "agent_pos": state_tensor.to(self._device),  # 1, T_obs, D_x
+            },
+            "target": target_tensor.to(self._device),  # 1, D_t
+        }
+
+        # Note: Assuming sim is the first element in one hot encoding
+        if hasattr(self._policy, "one_hot_encoding_dim") and self._policy.one_hot_encoding_dim > 0:
+            data["one_hot_encoding"] = torch.zeros(1, self._policy.one_hot_encoding_dim).to(self._device)
+            data["one_hot_encoding"][0, 0] = 1
+
+        # Load images into data dict
+        for camera, image_deque in image_deque_dict.items():
+            img_tensor = torch.cat(
+                [
+                    torch.from_numpy(np.moveaxis(img, -1, -3) / 255.0)  # C H W
+                    for img in image_deque
+                ],
+                dim=0,
+            ).reshape(
+                self._B,
+                self._obs_horizon,
+                self._camera_shape_dict[camera][0],  # C
+                self._camera_shape_dict[camera][1],  # H
+                self._camera_shape_dict[camera][2],  # W
+            )
+            data["obs"][camera] = img_tensor.to(self._device)  # 1, T_obs, C, H, W
+
+        return data
 
     def DoCalcOutput(self, context: Context, output):
         time = context.get_time()
@@ -241,43 +278,6 @@ class DiffusionPolicyController(LeafSystem):
             image_deque.clear()
         self._received_reset_signal = True
 
-    def _deque_to_dict(self, obs_deque: deque, image_deque_dict: dict, target: np.ndarray):
-        state_tensor = torch.cat([torch.from_numpy(obs) for obs in obs_deque], dim=0).reshape(
-            self._B, self._obs_horizon, self._state_dim
-        )
-        target_tensor = torch.from_numpy(target).reshape(1, self._target_dim)  # 1, D_t
-
-        data = {
-            "obs": {
-                "agent_pos": state_tensor.to(self._device),  # 1, T_obs, D_x
-            },
-            "target": target_tensor.to(self._device),  # 1, D_t
-        }
-
-        # Note: Assuming sim is the first element in one hot encoding
-        if hasattr(self._policy, "one_hot_encoding_dim") and self._policy.one_hot_encoding_dim > 0:
-            data["one_hot_encoding"] = torch.zeros(1, self._policy.one_hot_encoding_dim).to(self._device)
-            data["one_hot_encoding"][0, 0] = 1
-
-        # Load images into data dict
-        for camera, image_deque in image_deque_dict.items():
-            img_tensor = torch.cat(
-                [
-                    torch.from_numpy(np.moveaxis(img, -1, -3) / 255.0)  # C H W
-                    for img in image_deque
-                ],
-                dim=0,
-            ).reshape(
-                self._B,
-                self._obs_horizon,
-                self._camera_shape_dict[camera][0],  # C
-                self._camera_shape_dict[camera][1],  # H
-                self._camera_shape_dict[camera][2],  # W
-            )
-            data["obs"][camera] = img_tensor.to(self._device)  # 1, T_obs, C, H, W
-
-        return data
-
     def _update_history(self, context):
         """Update state and image observation history"""
 
@@ -296,28 +296,25 @@ class DiffusionPolicyController(LeafSystem):
             self._image_deque_dict[camera].append(image[:, :, :-1])  # H W C
 
     def _load_normalizer(self):
+        """
+        If normalizer.pt file already exists, then simply load it.
+
+        Otherwise, instantiate the dataset and generate and save the normalizer.pt file.
+        """
         normalizer_path = self._checkpoint.parent.parent.joinpath("normalizer.pt")
         if os.path.exists(normalizer_path):
             return torch.load(normalizer_path)
         else:
-            # get normalizer: this might be expensive for larger datasets
-            LEGACY_COTRAIN_DATASET = (
-                "diffusion_policy.dataset.drake_cotrain_planar_pushing_hybrid_dataset."
-                "DrakeCotrainPlanarPushingHybridDataset"
-            )
-            PLANAR_PUSHING_DATASET = "diffusion_policy.dataset.planar_pushing_dataset.PlanarPushingDataset"
-            cotraining_datasets = [LEGACY_COTRAIN_DATASET, PLANAR_PUSHING_DATASET]
-            # Fix config paths for datasets
-            if self._cfg.task.dataset._target_ in cotraining_datasets:
-                zarr_configs = self._cfg.task.dataset.zarr_configs
-                for config in zarr_configs:
-                    config["path"] = self._diffusion_policy_path.joinpath(config["path"])
-            else:
-                self._cfg.task.dataset.zarr_path = self._diffusion_policy_path.joinpath(
-                    self._cfg.task.dataset.zarr_path
-                )
+            # get normalizer: this might be expensive for large datasets
+            PLANAR_PUSHING_DATASET_TYPE = "diffusion_policy.dataset.planar_pushing_dataset.PlanarPushingDataset"
+            assert self._cfg.task.dataset._target_ == PLANAR_PUSHING_DATASET_TYPE
 
-            # Extract and save normalizer
+            # Retrieve path of zarr dataset
+            zarr_configs = self._cfg.task.dataset.zarr_configs
+            for config in zarr_configs:
+                config["path"] = self._diffusion_policy_path.joinpath(config["path"])
+
+            # Instantiate dataset, extract and save normalizer
             dataset: BaseImageDataset = hydra.utils.instantiate(self._cfg.task.dataset)
             normalizer = dataset.get_normalizer()
             torch.save(normalizer, normalizer_path)
