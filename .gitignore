@@ -1,25 +1,36 @@
-env
-bin
-logs
-wandb
-outputs
-data
-data_local
-.vscode
-_wandb
-plots
-config/submit_trainings
+# Generated files
+demos/
+trajectories/
+trajectories_rendered/
+outputs/
+multirun/
+data*
+temp
+*pdf
+diffusion_policy_logs/
+scripts/adam
+outputs/
+multirun/
+eval/
+config/launch_eval.txt
+planning_through_contact/simulation/models/arbitrary_shape.sdf
+planning_through_contact/simulation/models/small_table_hydroelastic_randomized.urdf
+planning_through_contact/simulation/models/pusher_floating_hydroelastic_randomized.sdf
+*.mp4
 
-**/.DS_Store
 
-fuse.cfg
+# Vim
+*.swp
+*.swo
 
-*.ai
+# Log files etc
+*log.txt
 
-# Generation results
-results/
+# MAC
+.DS_STORE
 
-ray/auth.json
+# Visualization
+*.svg
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -124,6 +135,15 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -142,13 +162,5 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# MIT Supercloud logs
-LL*
-*.log-*
-
-# virtual envirnonment
-.robodiff
-
-*.pkl
-
-eval_temp/
+.vscode
+hardware_demos

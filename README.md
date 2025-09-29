@@ -1,47 +1,66 @@
-# Diffusion Policy Inference in Drake
+# Diffusion Policy Experiments
 
-Michael's personal repo for testing and collecting training data for diffusion policies trained in [https://github.com/Michaelszeng/diffusion-policy-experiments](my `diffusion-policy-experiment` repo) using Drake. Work done for the Robot Locomotion Group, based off work done by Abhinav Agarwal and Adam Wei.
+Michael's personal diffusion policy experiments/implementation/research in the Robot Locomotion Group, based off of [original diffusion policy paper](https://diffusion-policy.cs.columbia.edu/) and work done by Abhinav Agarwal and Adam Wei.
 
 ## Installation
 
 This project uses [Poetry](https://python-poetry.org/) for dependency management.
 
 ### Prerequisites
-- Python 3.9 to 3.11
+- Python 3.10
 - Poetry (for dependency management)
 
-### Local Installation:
-
-1. Add dependency to local installation of [https://github.com/Michaelszeng/diffusion-policy-experiments](`diffusion-policy-experiment`)
-```bash
-# In pyproject.toml, replace:
-diffusion-policy = {path = "/home/michzeng/diffusion-policy", develop = true}
-# with whatever your local path to the repo is.
-```
-
-2. **Install Poetry** (if not already installed):
+1. **Install Poetry** (if not already installed):
 ```bash
 curl -sSL https://install.python-poetry.org | python3 -
 ```
 
-3. **Add Poetry to your PATH**:
+2. **Add Poetry to your PATH**:
 ```bash
 export PATH="/home/$USER/.local/bin:$PATH"
 ```
 
-4. **Install dependencies**:
+3. **Modify `pyproject.toml`**:
+For the project to run the diffusion policy, it must have access to the diffusion policy repo as well as a trained model checkpoint. Clone [my diffusion policy repo](https://github.com/Michaelszeng/diffusion-policy-experiments), follow the instructions to run training for the planar pushing example, then modify this line in `pyproject.toml` to point to wherever you cloned your repo:
+
+```
+diffusion-policy = {path = "/home/michzeng/diffusion-policy", develop = true}
+```
+
+4. **If using a custom installation of drake**:
+
+Add the following line in the `$(poetry env info --path)/bin/activate`:
+
+```bash
+export PYTHONPATH={PATH_TO_DRAKE_BUILD}/drake_build/lib/python3.10/site-packages:${PYTHONPATH}
+```
+
+Otherwise, add this to your `project.toml` file to use the latest pip wheel of drake:
+
+```
+drake = "1.45.0"
+```
+
+5. **Install dependencies**:
 ```bash
 poetry install
 ```
 
-5. **Activate the Poetry environment**:
+6. **Activate the Poetry environment**:
 ```bash
 source $(poetry env info --path)/bin/activate
 ```
 
 
+
 ## Running
 
+Parallel Experiments:
 ```bash
-python scripts/run_eval_for_one_policy.py
+TODO
+```
+
+Single Experiment:
+```bash
+python scripts/planar_pushing/run_sim_sim_eval.py --config-dir=config/sim_config/sim_sim --config-name=gamepad_teleop_carbon 'diffusion_policy_config.checkpoint="/home/michzeng/diffusion-policy/data/outputs/planar_pushing/2_obs/checkpoints/latest.ckpt"'
 ```

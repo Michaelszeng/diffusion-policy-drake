@@ -1,0 +1,9 @@
+job_logging:
+  loggers:
+    large_gcs:
+      level: DEBUG
+    drake:
+      level: INFO
+    # Set the entire planning_through_contact package to DEBUG
+    planning_through_contact:
+      level: DEBUG
