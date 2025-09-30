@@ -5,7 +5,7 @@ import numpy.typing as npt
 from pydrake.common.eigen_geometry import Quaternion
 from pydrake.math import RigidTransform, RollPitchYaw
 
-from planning_through_contact.geometry.utilities import two_d_rotation_matrix_from_angle
+from planning_through_contact.geometry.geometry_utils import two_d_rotation_matrix_from_angle
 
 
 @dataclass

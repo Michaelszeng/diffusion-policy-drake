@@ -2,17 +2,9 @@ defaults:
   - _self_
   - hydra: base_hydra
 
-# dynamics_config:
-#   _target_: planning_through_contact.planning.planar.planar_plan_config.SliderPusherSystemConfig
-#   pusher_radius: 0.015
-#   friction_coeff_table_slider: 0.5
-#   friction_coeff_slider_pusher: 0.1
-#   grav_acc: 9.81
-#   integration_constant: 0.3
-#   force_scale: 0.01
-
-pusher_radius: 0.015
-
+########################################################################################################################
+### PlanarPushingSimConfig
+########################################################################################################################
 slider_type: 'arbitrary'
 arbitrary_shape_pickle_path: arbitrary_shape_pickles/small_t_pusher.pkl
 arbitrary_shape_rgba: [0.15, 0.15, 0.15, 1.0]
@@ -35,6 +27,7 @@ slider_goal_pose:
   x: 0.587
   y: -0.0355
   theta: 0.0
+pusher_radius: 0.015
 pusher_start_pose:
   _target_: planning_through_contact.geometry.planar.planar_pose.PlanarPose
   x: 0.587
@@ -121,8 +114,12 @@ camera_configs:
 domain_randomization_color_range: 0.0
 log_dir: 'diffusion_policy_logs'
 
+scene_directive_name: 'planar_pushing_iiwa_plant_hydroelastic.yaml'
+default_joint_positions: [0.6202, 1.0135, -0.5873, -1.4182, 0.6449, 0.8986, 2.98796]
+joint_velocity_limit_factor: 1.0 # .inf
+
 ########################################################################################################################
-### Multi run config
+### MultiRunConfig
 ########################################################################################################################
 multi_run_config:
   _target_: planning_through_contact.simulation.planar_pushing.planar_pushing_sim_config.MultiRunConfig
@@ -150,16 +147,10 @@ multi_run_config:
 ########################################################################################################################
 ### Robot specific configs
 ########################################################################################################################
-# sim_config
-scene_directive_name: 'planar_pushing_iiwa_plant_hydroelastic.yaml'
-default_joint_positions: [0.6202, 1.0135, -0.5873, -1.4182, 0.6449, 0.8986, 2.98796]
-
-# position controller / robot station
 robot_station:
   _target_: planning_through_contact.simulation.controllers.iiwa_hardware_station.IiwaHardwareStation
   sim_config: null  # override in hydra.utils.instantiate
   meshcat: null     # override in hydra.utils.instantiate
-joint_velocity_limit_factor: 1.0 # .inf
 
 ########################################################################################################################
 ### Data Collection Config
@@ -204,6 +195,3 @@ data_collection_config:
     noise_final_pose: true
     num_unique_plans: 2
     sort_plans: true
-  ## Supercloud
-  LLSUB_RANK: null
-  LLSUB_SIZE: null

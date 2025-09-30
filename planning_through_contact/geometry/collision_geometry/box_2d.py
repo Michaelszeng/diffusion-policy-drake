@@ -11,11 +11,11 @@ from planning_through_contact.geometry.collision_geometry.collision_geometry imp
     ContactLocation,
     PolytopeContactLocation,
 )
+from planning_through_contact.geometry.geometry_utils import cross_2d, normalize_vec
 from planning_through_contact.geometry.hyperplane import (
     Hyperplane,
     construct_2d_plane_from_points,
 )
-from planning_through_contact.geometry.utilities import cross_2d, normalize_vec
 
 
 @dataclass(frozen=True)

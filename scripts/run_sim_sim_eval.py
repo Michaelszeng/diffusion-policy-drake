@@ -97,7 +97,7 @@ class SimSimEval:
         # Diffusion Policy
         position_source = DiffusionPolicySource(self.sim_config.diffusion_policy_config)
 
-        # Set up position controller
+        # Set up position controller (i.e. IiwaHardwareStation)
         module_name, class_name = cfg.robot_station._target_.rsplit(".", 1)
         robot_system_class = getattr(importlib.import_module(module_name), class_name)
         position_controller: RobotSystemBase = robot_system_class(sim_config=self.sim_config, meshcat=station_meshcat)

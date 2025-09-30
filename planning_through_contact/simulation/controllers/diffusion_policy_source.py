@@ -38,8 +38,10 @@ class DiffusionPolicyConfig:
 
 
 class DiffusionPolicySource(Diagram):
-    """Uses the desired trajectory of the entire system and diffusion controller
-    to generate desired positions for the robot."""
+    """
+    Uses the desired trajectory of the entire system and diffusion controller
+    to generate desired positions for the robot.
+    """
 
     def __init__(self, diffusion_policy_config: DiffusionPolicyConfig):
         super().__init__()

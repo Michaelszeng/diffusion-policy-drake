@@ -3,6 +3,7 @@ import os
 from typing import Optional
 
 import numpy as np
+import pydot
 from pydrake.all import (
     Cylinder,
     Demultiplexer,
@@ -73,7 +74,9 @@ class SimulatedRealTableEnvironment:
 
         builder = DiagramBuilder()
 
-        ## Add systems
+        ################################################################################################################
+        ### Add systems
+        ################################################################################################################
 
         builder.AddNamedSystem(
             "DesiredPlanarPositionSource",
@@ -95,7 +98,9 @@ class SimulatedRealTableEnvironment:
 
         self._meshcat = self._robot_system.get_meshcat()
 
-        ## Connect systems
+        ################################################################################################################
+        ### Connect systems
+        ################################################################################################################
 
         # Connect PositionController to RobotStateToOutputs
         builder.Connect(
@@ -133,7 +138,9 @@ class SimulatedRealTableEnvironment:
             self._robot_system.GetInputPort("planar_position_command"),
         )
 
-        ## Add loggers
+        ################################################################################################################
+        ### Add loggers
+        ################################################################################################################
 
         # pusher logger
         pusher_pose_to_vector = builder.AddSystem(RigidTransformToPlanarPoseVectorSystem())
@@ -191,15 +198,12 @@ class SimulatedRealTableEnvironment:
         self._robot_system.pre_sim_callback(self.context)
         self.robot_system_context = self._robot_system.GetMyContextFromRoot(self.context)
         self.mbp_context = self._plant.GetMyContextFromRoot(self.context)
-        # initialize slider above the table
-        # self.set_slider_planar_pose(PlanarPose(0.587, -0.0355, 0.0))
 
     def export_diagram(self, filename: str):
-        import pydot
-
-        pydot.graph_from_dot_data(self._diagram.GetGraphvizString())[0].write_pdf(  # type: ignore
-            filename
-        )
+        if type(filename) is str:
+            file = open(filename, "bw")
+        svg_data = pydot.graph_from_dot_data(self._diagram.GetGraphvizString())[0].create_svg()
+        file.write(svg_data)
         print(f"Saved diagram to: {filename}")
 
     def set_slider_planar_pose(self, pose: PlanarPose):
@@ -222,12 +226,6 @@ class SimulatedRealTableEnvironment:
             self._robot_system._diff_ik.SetPositions(diff_ik_context, q)
         except AttributeError:
             pass
-
-    def set_diff_ik_position(self, q: np.ndarray):
-        diff_ik_context = self._robot_system._diff_ik
-
-    def get_run_flag(self):
-        robot_system_context = self._robot_system.GetMyContextFromRoot(self.context)
 
     def reset(
         self,

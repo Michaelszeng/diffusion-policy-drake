@@ -4,15 +4,17 @@ from typing import List, Optional
 import hydra
 import numpy as np
 from omegaconf import OmegaConf
-
-# Removed PlanarPushingTrajectory import - not needed for simulation config
 from pydrake.all import Rgba, RollPitchYaw
 from pydrake.common.schema import Transform
 from pydrake.math import RigidTransform
 from pydrake.multibody.plant import ContactModel
 from pydrake.systems.sensors import CameraConfig
 
-from planning_through_contact.experiments.utils import get_arbitrary, get_box, get_tee
+from planning_through_contact.geometry.collision_geometry.arbitrary_shape_2d import (
+    ArbitraryShape2D,
+)
+from planning_through_contact.geometry.collision_geometry.box_2d import Box2d
+from planning_through_contact.geometry.collision_geometry.t_pusher_2d import TPusher2d
 from planning_through_contact.geometry.planar.planar_pose import PlanarPose
 from planning_through_contact.geometry.rigid_body import RigidBody
 from planning_through_contact.simulation.controllers.diffusion_policy_source import (
@@ -52,14 +54,14 @@ class MultiRunConfig:
         # Create sim_config with mandatory fields
         # TODO: read slider directly from yaml instead of if statement
         if slider_type == "box":
-            slider: RigidBody = get_box(slider_physical_properties.mass)
+            slider: RigidBody = RigidBody("box", Box2d(0.1, 0.1), slider_physical_properties.mass)
         elif slider_type == "tee":
-            slider: RigidBody = get_tee(slider_physical_properties.mass)
+            slider: RigidBody = RigidBody("tee", TPusher2d(), slider_physical_properties.mass)
         elif slider_type == "arbitrary":
-            slider = get_arbitrary(
-                arbitrary_shape_pickle_path,
+            slider: RigidBody = RigidBody(
+                "arbitrary",
+                ArbitraryShape2D(arbitrary_shape_pickle_path, slider_physical_properties.center_of_mass),
                 slider_physical_properties.mass,
-                slider_physical_properties.center_of_mass,
             )
         else:
             raise ValueError(f"Slider type not yet implemented: {slider_type}")
@@ -76,7 +78,6 @@ class MultiRunConfig:
         self.workspace = workspace
         self.num_runs = num_runs
         self.seed = seed
-        self.target_slider_poses = [slider_goal_pose] * num_runs
         self.max_attempt_duration = max_attempt_duration
         self.trans_tol = trans_tol
         self.rot_tol = rot_tol
@@ -89,8 +90,7 @@ class MultiRunConfig:
 
     def __str__(self):
         slider_pose_str = f"initial_slider_poses: {self.initial_slider_poses}"
-        target_pose_str = f"target_slider_poses: {self.target_slider_poses}"
-        return f"{slider_pose_str}\n{target_pose_str}\nmax_attempt_duration: {self.max_attempt_duration}"
+        return f"{slider_pose_str}\nmax_attempt_duration: {self.max_attempt_duration}"
 
     def __eq__(self, other: "MultiRunConfig"):
         if len(self.initial_slider_poses) != len(other.initial_slider_poses):
@@ -98,12 +98,6 @@ class MultiRunConfig:
         for i in range(len(self.initial_slider_poses)):
             if not self.initial_slider_poses[i] == other.initial_slider_poses[i]:
                 return False
-        if len(self.target_slider_poses) != len(other.target_slider_poses):
-            return False
-        for i in range(len(self.target_slider_poses)):
-            if not self.target_slider_poses[i] == other.target_slider_poses[i]:
-                return False
-
         return (
             self.num_runs == other.num_runs
             and self.seed == other.seed
@@ -147,8 +141,6 @@ class PlanarPushingSimConfig:
     arbitrary_shape_rgba: np.ndarray = np.array([0.0, 0.0, 0.0, 1.0])
     default_joint_positions: np.ndarray = None
 
-    # Removed from_traj method - not needed for simulation config
-
     @classmethod
     def from_yaml(cls, cfg: OmegaConf):
         """Create sim_config from yaml file (i.e. gamepad_teleop_carbon.yaml)"""
@@ -157,14 +149,14 @@ class PlanarPushingSimConfig:
         # Create sim_config with mandatory fields
         # TODO: read slider directly from yaml instead of if statement
         if cfg.slider_type == "box":
-            slider: RigidBody = get_box(slider_physical_properties.mass)
+            slider: RigidBody = RigidBody("box", Box2d(0.1, 0.1), slider_physical_properties.mass)
         elif cfg.slider_type == "tee":
-            slider: RigidBody = get_tee(slider_physical_properties.mass)
+            slider: RigidBody = RigidBody("tee", TPusher2d(), slider_physical_properties.mass)
         elif cfg.slider_type == "arbitrary":
-            slider = get_arbitrary(
-                cfg.arbitrary_shape_pickle_path,
+            slider: RigidBody = RigidBody(
+                "arbitrary",
+                ArbitraryShape2D(cfg.arbitrary_shape_pickle_path, slider_physical_properties.center_of_mass),
                 slider_physical_properties.mass,
-                slider_physical_properties.center_of_mass,
             )
         else:
             raise ValueError(f"Slider type not yet implemented: {cfg.slider_type}")
