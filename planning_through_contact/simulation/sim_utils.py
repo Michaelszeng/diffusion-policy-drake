@@ -1,10 +1,12 @@
 import copy
 import os
 import time
-from typing import List, Literal
+from dataclasses import dataclass, field
+from typing import List, Literal, Optional, Tuple
 
 import hydra
 import numpy as np
+import numpy.typing as npt
 from lxml import etree
 from pydrake.all import Box as DrakeBox
 from pydrake.all import (
@@ -24,25 +26,14 @@ from pydrake.all import (
 )
 from pydrake.all import RigidBody as DrakeRigidBody
 
+from planning_through_contact.geometry.collision_checker import CollisionChecker
 from planning_through_contact.geometry.collision_geometry.arbitrary_shape_2d import (
     ArbitraryShape2D,
 )
 from planning_through_contact.geometry.collision_geometry.box_2d import Box2d
-from planning_through_contact.geometry.collision_geometry.collision_geometry import (
-    CollisionGeometry,
-    ContactLocation,
-    PolytopeContactLocation,
-)
 from planning_through_contact.geometry.collision_geometry.t_pusher_2d import TPusher2d
-from planning_through_contact.geometry.planar.non_collision import (
-    check_finger_pose_in_contact_location,
-)
 from planning_through_contact.geometry.planar.planar_pose import PlanarPose
-from planning_through_contact.planning.planar.planar_plan_config import (
-    PlanarPlanConfig,
-    PlanarPushingStartAndGoal,
-    PlanarPushingWorkspace,
-)
+from planning_through_contact.geometry.rigid_body import RigidBody
 from planning_through_contact.simulation.controllers.robot_system_base import (
     RobotSystemBase,
 )
@@ -54,6 +45,46 @@ from planning_through_contact.visualize.colors import COLORS
 
 package_xml_file = os.path.join(os.path.dirname(__file__), "models/package.xml")
 models_folder = os.path.join(os.path.dirname(__file__), "models")
+
+
+@dataclass
+class BoxWorkspace:
+    width: float = 0.5
+    height: float = 0.5
+    center: npt.NDArray[np.float64] = field(default_factory=lambda: np.array([0.0, 0.0]))
+    buffer: float = 0.0
+
+    @property
+    def x_min(self) -> float:
+        return self.center[0] - self.width / 2 - self.buffer
+
+    @property
+    def x_max(self) -> float:
+        return self.center[0] + self.width / 2 + self.buffer
+
+    @property
+    def y_min(self) -> float:
+        return self.center[1] - self.height / 2 - self.buffer
+
+    @property
+    def y_max(self) -> float:
+        return self.center[1] + self.height / 2 + self.buffer
+
+    @property
+    def bounds(self) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        lb = np.array([self.x_min, self.y_min], dtype=np.float64)
+        ub = np.array([self.x_max, self.y_max], dtype=np.float64)
+        return lb, ub
+
+    def new_workspace_with_buffer(self, new_buffer: float) -> "BoxWorkspace":
+        return BoxWorkspace(self.width, self.height, self.center, new_buffer)
+
+
+@dataclass
+class PlanarPushingWorkspace:
+    slider: BoxWorkspace = field(
+        default_factory=lambda: BoxWorkspace(width=1.0, height=1.0, center=np.array([0.0, 0.0]), buffer=0.0)
+    )
 
 
 def GetParser(plant: MultibodyPlant) -> Parser:
@@ -367,104 +398,69 @@ def _valid_rgb(r, g, b):
 ## Collision checkers for computing initial slider and pusher poses
 
 
-def get_slider_start_poses(
-    seed: int,
-    num_plans: int,
-    workspace: PlanarPushingWorkspace,
-    config: PlanarPlanConfig,
-    pusher_pose: PlanarPose,
-    limit_rotations: bool = True,  # Use this to start with
-) -> List[PlanarPushingStartAndGoal]:
-    # We want the plans to always be the same
-    np.random.seed(seed)
-    slider = config.slider_geometry
-    slider_initial_poses = []
-    for _ in range(num_plans):
-        slider_initial_pose = get_slider_pose_within_workspace(workspace, slider, pusher_pose, config, limit_rotations)
-        slider_initial_poses.append(slider_initial_pose)
-
-    return slider_initial_poses
-
-
-def get_slider_pose_within_workspace(
-    workspace: PlanarPushingWorkspace,
-    slider: CollisionGeometry,
-    pusher_pose: PlanarPose,
-    config: PlanarPlanConfig,
+def get_slider_initial_pose_within_workspace(
+    workspace: "PlanarPushingWorkspace",
+    slider: "RigidBody",
+    pusher_pose: "PlanarPose",
+    collision_checker: "CollisionChecker",
     limit_rotations: bool = False,
     rotation_limit: float = None,
-    enforce_entire_slider_within_workspace: bool = True,
     timeout_s: float = 10.0,
-) -> PlanarPose:
-    valid_pose = False
+    rng: Optional[np.random.Generator] = None,
+) -> Optional["PlanarPose"]:
+    """
+    Generates a random valid pose for a slider object that avoids collisions with the pusher
+    and satisfies workspace constraints. Uses Monte Carlo sampling with timeout protection.
+
+    Determinism: pass a dedicated np.random.Generator in `rng`. If you derive `rng` from a
+    master seed and a trial index (see example usage below), you get a fixed pose per trial.
+    """
+    if rng is None:
+        # Falls back to a non-deterministic Generator
+        rng = np.random.default_rng()
 
     start_time = time.time()
-    slider_pose = None
-    while not valid_pose:
+    EPS = 1e-2
+
+    while True:
         if time.time() - start_time > timeout_s:
             raise ValueError("Could not find a valid slider pose within the timeout.")
 
-        x_initial = np.random.uniform(workspace.slider.x_min, workspace.slider.x_max)
-        y_initial = np.random.uniform(workspace.slider.y_min, workspace.slider.y_max)
-        EPS = 0.01
+        x_initial = rng.uniform(workspace.slider.x_min, workspace.slider.x_max)
+        y_initial = rng.uniform(workspace.slider.y_min, workspace.slider.y_max)
+
         if limit_rotations:
             if rotation_limit is not None:
-                th_initial = np.random.uniform(-rotation_limit, rotation_limit)
+                th_initial = rng.uniform(-rotation_limit, rotation_limit)
             else:
-                th_initial = np.random.uniform(-np.pi / 2 + EPS, np.pi / 2 - EPS)
+                th_initial = rng.uniform(-np.pi / 2 + EPS, np.pi / 2 - EPS)
         else:
-            th_initial = np.random.uniform(-np.pi + EPS, np.pi - EPS)
+            th_initial = rng.uniform(-np.pi + EPS, np.pi - EPS)
 
         slider_pose = PlanarPose(x_initial, y_initial, th_initial)
 
-        collides_with_pusher = check_collision(pusher_pose, slider_pose, config)
+        collides_with_pusher = collision_checker.check_collision(slider_pose, pusher_pose)  # Z-height doesn't matter
+        # collision_checker.visualize_once(slider_pose, pusher_pose)  # debug visualization
         within_workspace = slider_within_workspace(workspace, slider_pose, slider)
 
-        if enforce_entire_slider_within_workspace:
-            valid_pose = within_workspace and not collides_with_pusher
-        else:
-            valid_pose = not collides_with_pusher
-
-    assert slider_pose is not None  # fix LSP errors
-
-    return slider_pose
+        if within_workspace and not collides_with_pusher:
+            return slider_pose
+        # else:
+        #     print(f"Collision: {collides_with_pusher}, Within workspace: {within_workspace}")
 
 
-# TODO: refactor
-def check_collision(
-    pusher_pose_world: PlanarPose,
-    slider_pose_world: PlanarPose,
-    config: PlanarPlanConfig,
-) -> bool:
-    p_WP = pusher_pose_world.pos()
-    R_WB = slider_pose_world.two_d_rot_matrix()
-    p_WB = slider_pose_world.pos()
-
-    # We need to compute the pusher pos in the frame of the slider
-    p_BP = R_WB.T @ (p_WP - p_WB)
-    pusher_pose_body = PlanarPose(p_BP[0, 0], p_BP[1, 0], 0)
-
-    # we always add all non-collision modes, even when we don't add all contact modes
-    # (think of maneuvering around the object etc)
-    locations = [
-        PolytopeContactLocation(ContactLocation.FACE, idx)
-        for idx in range(config.slider_geometry.num_collision_free_regions)
-    ]
-    matching_locs = [loc for loc in locations if check_finger_pose_in_contact_location(pusher_pose_body, loc, config)]
-    if len(matching_locs) == 0:
-        return True
-    else:
-        return False
-
-
-def slider_within_workspace(workspace: PlanarPushingWorkspace, pose: PlanarPose, slider: CollisionGeometry) -> bool:
+def slider_within_workspace(workspace: PlanarPushingWorkspace, pose: PlanarPose, slider: RigidBody) -> bool:
     """
     Checks whether the entire slider is within the workspace
     """
     R_WB = pose.two_d_rot_matrix()
     p_WB = pose.pos()
 
-    p_Wv_s = [slider.get_p_Wv_i(vertex_idx, R_WB, p_WB).flatten() for vertex_idx in range(len(slider.vertices))]
+    slider_collision_geometry = slider.geometry
+    p_Wv_s = [
+        slider_collision_geometry.get_p_Wv_i(vertex_idx, R_WB, p_WB).flatten()
+        for vertex_idx in range(len(slider_collision_geometry.vertices))
+    ]
 
     lb, ub = workspace.slider.bounds
     vertices_within_workspace: bool = np.all([v <= ub for v in p_Wv_s]) and np.all([v >= lb for v in p_Wv_s])

@@ -15,17 +15,12 @@ from pydrake.systems.sensors import CameraConfig
 from planning_through_contact.experiments.utils import get_arbitrary, get_box, get_tee
 from planning_through_contact.geometry.planar.planar_pose import PlanarPose
 from planning_through_contact.geometry.rigid_body import RigidBody
-from planning_through_contact.planning.planar.planar_plan_config import (
-    BoxWorkspace,
-    PlanarPlanConfig,
-    PlanarPushingWorkspace,
-    SliderPusherSystemConfig,
-)
 from planning_through_contact.simulation.controllers.diffusion_policy_source import (
     DiffusionPolicyConfig,
 )
 from planning_through_contact.simulation.sim_utils import (
-    get_slider_start_poses,
+    BoxWorkspace,
+    PlanarPushingWorkspace,
     randomize_camera_config,
 )
 from planning_through_contact.tools.utils import PhysicalProperties
@@ -51,17 +46,25 @@ class MultiRunConfig:
         dataset_path: str = None,
         convex_hull_scale: float = 1.0,
         slider_physical_properties: PhysicalProperties = None,
-        pre_compute_initial_conditions: bool = True,
         num_trials_to_record: int = 0,
     ):
-        # Set up multi run config - simplified without planning config
-        config = PlanarPlanConfig()
-        # Set basic collision checking parameters
-        config.contact_config.lam_min = 0.15
-        config.contact_config.lam_max = 0.85
-        config.non_collision_cost.distance_to_object_socp = 0.25
+        # Define geometry of slider
+        # Create sim_config with mandatory fields
+        # TODO: read slider directly from yaml instead of if statement
+        if slider_type == "box":
+            slider: RigidBody = get_box(slider_physical_properties.mass)
+        elif slider_type == "tee":
+            slider: RigidBody = get_tee(slider_physical_properties.mass)
+        elif slider_type == "arbitrary":
+            slider = get_arbitrary(
+                arbitrary_shape_pickle_path,
+                slider_physical_properties.mass,
+                slider_physical_properties.center_of_mass,
+            )
+        else:
+            raise ValueError(f"Slider type not yet implemented: {slider_type}")
 
-        # Get initial slider poses
+        # Define workspace for initial slider pose
         workspace = PlanarPushingWorkspace(
             slider=BoxWorkspace(
                 width=workspace_width,
@@ -70,16 +73,6 @@ class MultiRunConfig:
                 buffer=0,
             ),
         )
-
-        if pre_compute_initial_conditions:
-            self.initial_slider_poses = get_slider_start_poses(
-                seed=seed,
-                num_plans=num_runs,
-                workspace=workspace,
-                config=config,
-                pusher_pose=pusher_start_pose,
-                limit_rotations=False,
-            )
         self.workspace = workspace
         self.num_runs = num_runs
         self.seed = seed
@@ -93,7 +86,6 @@ class MultiRunConfig:
         self.dataset_path = dataset_path
         self.convex_hull_scale = convex_hull_scale
         self.num_trials_to_record = num_trials_to_record
-        self.pre_compute_initial_conditions = pre_compute_initial_conditions
 
     def __str__(self):
         slider_pose_str = f"initial_slider_poses: {self.initial_slider_poses}"
@@ -122,7 +114,6 @@ class MultiRunConfig:
             and self.evaluate_final_slider_rotation == other.evaluate_final_slider_rotation
             and self.success_criteria == other.success_criteria
             and self.dataset_path == other.dataset_path
-            and self.pre_compute_initial_conditions == other.pre_compute_initial_conditions
             and self.num_trials_to_record == other.num_trials_to_record
             and self.convex_hull_scale == other.convex_hull_scale
         )
@@ -130,7 +121,6 @@ class MultiRunConfig:
 
 @dataclass
 class PlanarPushingSimConfig:
-    dynamics_config: SliderPusherSystemConfig
     slider: RigidBody
     contact_model: ContactModel = ContactModel.kHydroelastic
     visualize_desired: bool = False
@@ -138,7 +128,6 @@ class PlanarPushingSimConfig:
     pusher_start_pose: PlanarPose = field(default_factory=lambda: PlanarPose(x=0.0, y=0.5, theta=0.0))
     slider_start_pose: PlanarPose = field(default_factory=lambda: PlanarPose(x=0.0, y=0.5, theta=0.0))
     time_step: float = 1e-3
-    closed_loop: bool = True
     draw_frames: bool = False
     use_realtime: bool = False
     delay_before_execution: float = 5.0
@@ -147,7 +136,8 @@ class PlanarPushingSimConfig:
     scene_directive_name: str = "planar_pushing_iiwa_plant_hydroelastic.yaml"
     use_hardware: bool = False
     joint_velocity_limit_factor: float = 1.0
-    pusher_z_offset: float = 0.05
+    pusher_radius: float = 0.015
+    pusher_z_offset: float = 0.05  # distance between table and pusher end
     camera_configs: List[CameraConfig] = None
     domain_randomization_color_range: float = 0.0
     log_dir: str = None  # directory for logging rollouts from output_feedback_table_environments
@@ -161,6 +151,7 @@ class PlanarPushingSimConfig:
 
     @classmethod
     def from_yaml(cls, cfg: OmegaConf):
+        """Create sim_config from yaml file (i.e. gamepad_teleop_carbon.yaml)"""
         slider_physical_properties: PhysicalProperties = hydra.utils.instantiate(cfg.physical_properties)
 
         # Create sim_config with mandatory fields
@@ -177,27 +168,23 @@ class PlanarPushingSimConfig:
             )
         else:
             raise ValueError(f"Slider type not yet implemented: {cfg.slider_type}")
-        dynamics_config: SliderPusherSystemConfig = hydra.utils.instantiate(
-            cfg.dynamics_config,
-        )
-        dynamics_config.slider = slider
+
         slider_goal_pose: PlanarPose = hydra.utils.instantiate(cfg.slider_goal_pose)
         pusher_start_pose: PlanarPose = hydra.utils.instantiate(cfg.pusher_start_pose)
         sim_config = cls(
-            dynamics_config=dynamics_config,
             slider=slider,
             contact_model=eval(cfg.contact_model),
             visualize_desired=cfg.visualize_desired,
             slider_goal_pose=slider_goal_pose,
             pusher_start_pose=pusher_start_pose,
             time_step=cfg.time_step,
-            closed_loop=cfg.closed_loop,
             draw_frames=cfg.draw_frames,
             use_realtime=cfg.use_realtime,
             delay_before_execution=cfg.delay_before_execution,
             save_plots=cfg.save_plots,
             scene_directive_name=cfg.scene_directive_name,
             use_hardware=cfg.use_hardware,
+            pusher_radius=cfg.pusher_radius,
             pusher_z_offset=cfg.pusher_z_offset,
             log_dir=cfg.log_dir,
             domain_randomization_color_range=cfg.domain_randomization_color_range,
@@ -323,8 +310,6 @@ class PlanarPushingSimConfig:
         return sim_config
 
     def __eq__(self, other: "PlanarPushingSimConfig"):
-        # Note: this function does not check equality for MPC config
-
         # Check camera configs
         if self.camera_configs is None and other.camera_configs is not None:
             return False
@@ -337,13 +322,11 @@ class PlanarPushingSimConfig:
 
         return (
             self.slider == other.slider
-            and self.dynamics_config == other.dynamics_config
             and self.contact_model == other.contact_model
             and self.visualize_desired == other.visualize_desired
             and self.slider_goal_pose == other.slider_goal_pose
             and self.pusher_start_pose == other.pusher_start_pose
             and self.time_step == other.time_step
-            and self.closed_loop == other.closed_loop
             and self.draw_frames == other.draw_frames
             and self.use_realtime == other.use_realtime
             and self.delay_before_execution == other.delay_before_execution

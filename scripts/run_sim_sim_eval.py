@@ -15,7 +15,7 @@ from omegaconf import OmegaConf
 from pydrake.all import HPolyhedron, StartMeshcat, VPolytope
 from pydrake.common import configure_logging
 
-from planning_through_contact.experiments.utils import get_default_plan_config
+from planning_through_contact.geometry.collision_checker import CollisionChecker
 from planning_through_contact.geometry.planar.planar_pose import PlanarPose
 from planning_through_contact.simulation.controllers.cylinder_actuated_station import (
     CylinderActuatedStation,
@@ -37,7 +37,7 @@ from planning_through_contact.simulation.planar_pushing.planar_pushing_sim_confi
 )
 from planning_through_contact.simulation.sim_utils import (
     create_arbitrary_shape_sdf_file,
-    get_slider_pose_within_workspace,
+    get_slider_initial_pose_within_workspace,
 )
 from planning_through_contact.visualize.analysis import (
     CombinedPlanarPushingLogs,
@@ -89,12 +89,6 @@ class SimSimEval:
             assert os.path.exists(os.path.join(self.output_dir, "summary.pkl"))
 
         self.workspace = self.multi_run_config.workspace
-        self.plan_config = get_default_plan_config(
-            slider_type=self.sim_config.slider.name if self.sim_config.slider.name != "t_pusher" else "tee",
-            arbitrary_shape_pickle_path=self.sim_config.arbitrary_shape_pickle_path,
-            pusher_radius=0.015,
-            hardware=False,
-        )
 
         if cfg.slider_type == "arbitrary":
             # create arbitrary shape sdf file
@@ -122,8 +116,9 @@ class SimSimEval:
         random.seed(self.multi_run_config.seed)
         np.random.seed(self.multi_run_config.seed)
 
-        # Random initial condition
-        self.reset_environment()
+        # Random initial T pose
+        self.collision_checker = CollisionChecker(cfg.arbitrary_shape_pickle_path, cfg.pusher_radius, station_meshcat)
+        self.reset_environment(0)
 
         # Useful variables for querying mbp
         self.plant = self.environment._plant
@@ -287,7 +282,7 @@ class SimSimEval:
                     should_reset = run_flag and not prev_run_flag
 
                 if should_reset:  # run flag switched from False to True
-                    self.reset_environment()
+                    self.reset_environment(num_completed_trials)
                     last_reset_time = t
                     summary["initial_conditions"].append(self.get_slider_pose().vector())
                     sim_mode = SimulationMode.EVAL
@@ -389,10 +384,16 @@ class SimSimEval:
 
         return {"pusher_error": pusher_error[:2], "slider_error": slider_error}
 
-    def reset_environment(self):
-        slider_geometry = self.sim_config.dynamics_config.slider.geometry
-        slider_pose = get_slider_pose_within_workspace(
-            self.workspace, slider_geometry, self.pusher_start_pose, self.plan_config
+    def reset_environment(self, trial_idx):
+        """
+        Reset environment with new initial slider pose.
+        Use seed sequence to ensure deterministic sequence of initial slider poses is produced every run.
+        """
+        slider = self.sim_config.slider
+        ss = np.random.SeedSequence([self.multi_run_config.seed, trial_idx])
+        trial_rng = np.random.default_rng(ss)
+        slider_pose = get_slider_initial_pose_within_workspace(
+            self.workspace, slider, self.pusher_start_pose, self.collision_checker, rng=trial_rng
         )
 
         self.environment.reset(

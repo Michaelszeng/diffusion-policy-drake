@@ -192,7 +192,7 @@ class SimulatedRealTableEnvironment:
         self.robot_system_context = self._robot_system.GetMyContextFromRoot(self.context)
         self.mbp_context = self._plant.GetMyContextFromRoot(self.context)
         # initialize slider above the table
-        self.set_slider_planar_pose(PlanarPose(0.587, -0.0355, 0.0))
+        # self.set_slider_planar_pose(PlanarPose(0.587, -0.0355, 0.0))
 
     def export_diagram(self, filename: str):
         import pydot
@@ -262,7 +262,7 @@ class SimulatedRealTableEnvironment:
 
         if self._pusher_goal_geometry is None:
             color = COLORS["emeraldgreen"].diffuse(0.3)
-            pusher_shape = Cylinder(self._sim_config.dynamics_config.pusher_radius, height)
+            pusher_shape = Cylinder(self._sim_config.pusher_radius, height)
             desired_pose = self._sim_config.pusher_start_pose.to_pose(height / 2, z_axis_is_positive=True)
             source_id = self._robot_system._scene_graph.RegisterSource()
 
