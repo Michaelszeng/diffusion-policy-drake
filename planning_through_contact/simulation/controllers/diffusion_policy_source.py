@@ -1,10 +1,10 @@
 from dataclasses import dataclass, field
 
 import numpy as np
-from pydrake.all import Diagram, DiagramBuilder, LeafSystem, ZeroOrderHold
+from pydrake.all import Diagram, DiagramBuilder, ZeroOrderHold
 
 from planning_through_contact.geometry.planar.planar_pose import PlanarPose
-from planning_through_contact.simulation.planar_pushing.diffusion_policy_controller import (
+from planning_through_contact.simulation.controllers.diffusion_policy_controller import (
     DiffusionPolicyController,
 )
 
@@ -14,7 +14,7 @@ class DiffusionPolicyConfig:
     checkpoint: str
     initial_pusher_pose: PlanarPose
     target_slider_pose: PlanarPose
-    diffusion_policy_path: str = "/home/adam/workspace/gcs-diffusion"
+    diffusion_policy_path: str = ""
     freq: float = 10.0
     delay: float = 1.0
     debug: bool = False
@@ -41,6 +41,9 @@ class DiffusionPolicySource(Diagram):
     """
     Uses the desired trajectory of the entire system and diffusion controller
     to generate desired positions for the robot.
+
+    Small LeafSystem wrapper around DiffusionPolicyController that just adds a zero-order hold to the output of the
+    DiffusionPolicyController to actual trajectories (the DiffusionPolicyController outputs discrete actions).
     """
 
     def __init__(self, diffusion_policy_config: DiffusionPolicyConfig):
@@ -68,7 +71,7 @@ class DiffusionPolicySource(Diagram):
             ),
         )
 
-        # Zero Order Hold
+        # Zero Order Hold -- hold new desired position until next diffusion policy update is ready
         self._zero_order_hold = builder.AddNamedSystem(
             "ZeroOrderHold",
             ZeroOrderHold(
@@ -77,17 +80,12 @@ class DiffusionPolicySource(Diagram):
             ),
         )
 
-        # AppendZeros (add theta to x y positions)
-        self._append_zeros = builder.AddSystem(AppendZeros(input_size=2, num_zeros=1))
-
         ## Internal connections
 
         builder.Connect(
             self._diffusion_policy_controller.get_output_port(),
             self._zero_order_hold.get_input_port(),
         )
-
-        builder.Connect(self._zero_order_hold.get_output_port(), self._append_zeros.get_input_port())
 
         ## Export inputs and outputs (external)
 
@@ -101,24 +99,7 @@ class DiffusionPolicySource(Diagram):
 
         builder.ExportOutput(self._zero_order_hold.get_output_port(), "planar_position_command")
 
-        builder.ExportOutput(self._append_zeros.get_output_port(), "planar_pose_command")
-
         builder.BuildInto(self)
 
     def reset(self, pusher_position: np.ndarray = None):
         self._diffusion_policy_controller.reset(pusher_position)
-
-
-class AppendZeros(LeafSystem):
-    def __init__(self, input_size: int, num_zeros: int):
-        super().__init__()
-        self._input_size = input_size
-        self._num_zeros = num_zeros
-        self.DeclareVectorInputPort("input", input_size)
-        self.DeclareVectorOutputPort("output", input_size + num_zeros, self.CalcOutput)
-
-    def CalcOutput(self, context, output):
-        input = self.EvalVectorInput(context, 0).get_value()
-        output_vec = np.zeros(self._input_size + self._num_zeros)
-        output_vec[: self._input_size] = input
-        output.SetFromVector(output_vec)

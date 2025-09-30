@@ -8,7 +8,7 @@ from pydrake.all import (
     StateInterpolatorWithDiscreteDerivative,
 )
 
-from planning_through_contact.simulation.planar_pushing.planar_pushing_sim_config import (
+from planning_through_contact.simulation.planar_pushing_sim_config import (
     PlanarPushingSimConfig,
 )
 from planning_through_contact.simulation.sim_utils import (

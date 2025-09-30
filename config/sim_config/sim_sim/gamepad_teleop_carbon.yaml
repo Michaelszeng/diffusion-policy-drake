@@ -16,7 +16,6 @@ physical_properties: # Slider physical properties
   center_of_mass: null # [0.0, 0.0, 0.0] # Use null for uniform densit7y
   is_compliant: true
   hydroelastic_modulus: 1.0e6
-  # NOTE: These friction coefficients are used for sim while the ones in `dynamic_config` are used for planning!
   mu_dynamic: 0.5
   mu_static: 0.5
   mesh_resolution_hint: 0.01
@@ -49,7 +48,7 @@ diffusion_policy_config:
   checkpoint: ""
   initial_pusher_pose: ${pusher_start_pose}
   target_slider_pose: ${slider_goal_pose}
-  diffusion_policy_path: '/home/adam/workspace/gcs-diffusion'
+  diffusion_policy_path: '/home/michzeng/diffusion-policy'
   freq: 10.0
   delay: 1.0
   debug: false
@@ -122,10 +121,10 @@ joint_velocity_limit_factor: 1.0 # .inf
 ### MultiRunConfig
 ########################################################################################################################
 multi_run_config:
-  _target_: planning_through_contact.simulation.planar_pushing.planar_pushing_sim_config.MultiRunConfig
+  _target_: planning_through_contact.simulation.planar_pushing_sim_config.MultiRunConfig
   num_runs: 100
   max_attempt_duration: 75
-  seed: 123
+  seed: 17
   slider_type: ${slider_type}
   arbitrary_shape_pickle_path: ${arbitrary_shape_pickle_path}
   pusher_start_pose: ${pusher_start_pose}
@@ -140,7 +139,7 @@ multi_run_config:
   success_criteria: 'tolerance' # 'tolerance' or 'convex_hull'
   # Dataset path is only required when using
   # the convex_hull success criteria
-  dataset_path: /home/adam/workspace/gcs-diffusion/data/planar_pushing_cotrain/sim_sim_tee_data.zarr
+  dataset_path: ''
   slider_physical_properties: ${physical_properties}
   num_trials_to_record: 20 # number of trials to record in the meshcat recording
 

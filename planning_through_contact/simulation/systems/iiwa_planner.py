@@ -3,23 +3,25 @@ from copy import copy
 from enum import Enum
 
 import numpy as np
+import numpy.typing as npt
 from pydrake.all import (
     AbstractValue,
     GcsTrajectoryOptimization,
     HPolyhedron,
     InputPortIndex,
+    InverseKinematics,
     LeafSystem,
     MultibodyPlant,
     PathParameterizedTrajectory,
     PiecewisePolynomial,
     Point,
+    RigidTransform,
+    RotationMatrix,
+    Solve,
     Toppra,
 )
 
-from planning_through_contact.simulation.planar_pushing.inverse_kinematics import (
-    solve_ik,
-)
-from planning_through_contact.simulation.planar_pushing.planar_pushing_sim_config import (
+from planning_through_contact.simulation.planar_pushing_sim_config import (
     PlanarPushingSimConfig,
 )
 
@@ -185,8 +187,7 @@ class IiwaPlanner(LeafSystem):
     def PlanGoPushStart(self, context, state):
         logger.debug(f"PlanGoPushStart at time {context.get_time()}.")
         q_start = copy(context.get_discrete_state(self._q0_index).get_value())
-        q_goal = solve_ik(
-            self._plant,
+        q_goal = self.solve_ik(
             pose=self._sim_config.pusher_start_pose.to_pose(self._sim_config.pusher_z_offset),
             default_joint_positions=self._sim_config.default_joint_positions,
         )
@@ -288,10 +289,63 @@ class IiwaPlanner(LeafSystem):
         gcs.AddVelocityBounds(-vel_limits, vel_limits)
 
         traj, result = gcs.SolvePath(start, goal)
-        logger.debug(traj)
-        logger.debug(f"result.is_success(): {result.is_success()}")
 
         if result.is_success():
             return make_traj_toppra(traj, plant, vel_limits=vel_limits, accel_limits=accel_limits)
         else:
             return PiecewisePolynomial.FirstOrderHold([0, 1], np.column_stack((q_start, q_goal)))
+
+    def solve_ik(
+        self,
+        pose: RigidTransform,
+        default_joint_positions: npt.NDArray[np.float64],
+        disregard_angle: bool = False,
+    ) -> npt.NDArray[np.float64]:
+        # Plant needs to be just the robot without other objects
+        # Need to create a new context that the IK can use for solving the problem
+        plant = self._plant
+        ik = InverseKinematics(plant, with_joint_limits=True)  # type: ignore
+        pusher_frame = plant.GetFrameByName("pusher_end")
+        EPS = 1e-3
+
+        ik.AddPositionConstraint(
+            pusher_frame,
+            np.zeros(3),
+            plant.world_frame(),
+            pose.translation() - np.ones(3) * EPS,
+            pose.translation() + np.ones(3) * EPS,
+        )
+
+        if disregard_angle:
+            z_unit_vec = np.array([0, 0, 1])
+            ik.AddAngleBetweenVectorsConstraint(
+                pusher_frame,
+                z_unit_vec,
+                plant.world_frame(),
+                -z_unit_vec,  # The pusher object has z-axis pointing up
+                0 - EPS,
+                0 + EPS,
+            )
+
+        else:
+            ik.AddOrientationConstraint(
+                pusher_frame,
+                RotationMatrix(),
+                plant.world_frame(),
+                pose.rotation(),
+                EPS,
+            )
+
+        # Cost on deviation from default joint positions
+        prog = ik.get_mutable_prog()
+        q = ik.q()
+
+        q0 = default_joint_positions
+        prog.AddQuadraticErrorCost(np.identity(len(q)), q0, q)
+        prog.SetInitialGuess(q, q0)
+
+        result = Solve(ik.prog())
+        assert result.is_success()
+
+        q_sol = result.GetSolution(q)
+        return q_sol

@@ -395,7 +395,7 @@ def _valid_rgb(r, g, b):
     return 0 <= r <= 1 and 0 <= g <= 1 and 0 <= b <= 1
 
 
-## Collision checkers for computing initial slider and pusher poses
+## Computing collision-free, in-workspaceinitial slider poses
 
 
 def get_slider_initial_pose_within_workspace(

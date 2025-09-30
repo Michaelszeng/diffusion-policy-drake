@@ -1,7 +1,7 @@
 import numpy as np
 from pydrake.all import Diagram, DiagramBuilder
 
-from planning_through_contact.simulation.planar_pushing.gamepad_controller import (
+from planning_through_contact.simulation.controllers.gamepad_controller import (
     GamepadController,
 )
 
@@ -14,6 +14,7 @@ class GamepadControllerSource(Diagram):
         deadzone: float,
         gamepad_orientation: np.ndarray,
     ):
+        """Small LeafSystem wrapper around GamepadController."""
         super().__init__()
 
         builder = DiagramBuilder()

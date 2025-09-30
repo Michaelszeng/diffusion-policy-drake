@@ -21,7 +21,7 @@ from pydrake.all import Cylinder as DrakeCylinder
 from pydrake.all import RigidBody as DrakeRigidBody
 
 from planning_through_contact.geometry.planar.planar_pose import PlanarPose
-from planning_through_contact.simulation.planar_pushing.planar_pushing_sim_config import (
+from planning_through_contact.simulation.planar_pushing_sim_config import (
     PlanarPushingSimConfig,
 )
 from planning_through_contact.simulation.sim_utils import (

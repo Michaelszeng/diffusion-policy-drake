@@ -32,7 +32,7 @@ from planning_through_contact.simulation.controllers.robot_system_base import (
 from planning_through_contact.simulation.environments.simulated_real_table_environment import (
     SimulatedRealTableEnvironment,
 )
-from planning_through_contact.simulation.planar_pushing.planar_pushing_sim_config import (
+from planning_through_contact.simulation.planar_pushing_sim_config import (
     PlanarPushingSimConfig,
 )
 from planning_through_contact.simulation.sim_utils import (

@@ -1,13 +1,9 @@
-from typing import BinaryIO, Union
-
 import numpy as np
-import pydot
 from lxml import etree
 from manipulation.scenarios import AddMultibodyTriad
 from pydrake.all import (
     Context,
     Demultiplexer,
-    Diagram,
     DiagramBuilder,
     DifferentialInverseKinematicsIntegrator,
     DifferentialInverseKinematicsParameters,
@@ -24,7 +20,7 @@ from manipulation_copy.station import (
     LoadScenario,
     MakeHardwareStation,
 )
-from planning_through_contact.simulation.planar_pushing.planar_pushing_sim_config import PlanarPushingSimConfig
+from planning_through_contact.simulation.planar_pushing_sim_config import PlanarPushingSimConfig
 from planning_through_contact.simulation.sim_utils import (
     GetSliderUrl,
     LoadRobotOnly,
@@ -43,14 +39,6 @@ from planning_through_contact.simulation.systems.planar_translation_to_rigid_tra
 from planning_through_contact.simulation.systems.run_flag_system import RunFlagSystem
 
 from .robot_system_base import RobotSystemBase
-
-
-def diagram_visualize_connections(diagram: Diagram, file: Union[BinaryIO, str]) -> None:
-    """Create SVG file of system diagram."""
-    if type(file) is str:
-        file = open(file, "bw")
-    svg_data = pydot.graph_from_dot_data(diagram.GetGraphvizString())[0].create_svg()
-    file.write(svg_data)
 
 
 def set_meshcat_camera_pose(meshcat: Meshcat, sim_config: PlanarPushingSimConfig):
@@ -392,8 +380,6 @@ class IiwaHardwareStation(RobotSystemBase):
             radius=0.0025,
             opacity=0.25,
         )
-        # Save diagram to SVG file for debugging
-        diagram_visualize_connections(self, "diagram.svg")
 
     def pre_sim_callback(self, root_context: Context) -> None: ...
 

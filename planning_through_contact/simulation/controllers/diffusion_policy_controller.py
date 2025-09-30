@@ -37,7 +37,7 @@ class DiffusionPolicyController(LeafSystem):
         checkpoint: str,
         initial_pusher_pose: PlanarPose,
         target_slider_pose: PlanarPose,
-        diffusion_policy_path: str = "/home/adam/workspace/gcs-diffusion",
+        diffusion_policy_path: str = "",
         freq: float = 10.0,
         delay: float = 1.0,
         device="cuda:0",
