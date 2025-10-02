@@ -57,7 +57,11 @@ source $(poetry env info --path)/bin/activate
 
 Parallel Experiments:
 ```bash
-TODO
+python scripts/launch_eval.py \
+    --csv-path config/main_launch_eval.txt \
+    --max-concurrent-jobs 8 \
+    --num-trials 50 50 100 \
+    --drop-threshold 0.05
 ```
 
 Single Experiment:

@@ -1,6 +1,5 @@
 import numpy as np
 from lxml import etree
-from manipulation.scenarios import AddMultibodyTriad
 from pydrake.all import (
     Context,
     Demultiplexer,
@@ -372,14 +371,14 @@ class IiwaHardwareStation(RobotSystemBase):
 
         set_meshcat_camera_pose(self._meshcat, self._sim_config)  # For meshcat visualization
 
-        # Add triad to visualize pusher end effector
-        AddMultibodyTriad(
-            self.station.GetSubsystemByName("plant").GetFrameByName("pusher_end"),
-            self.station.scene_graph(),
-            length=0.04,
-            radius=0.0025,
-            opacity=0.25,
-        )
+        # # Add triad to visualize pusher end effector
+        # AddMultibodyTriad(
+        #     self.station.GetSubsystemByName("plant").GetFrameByName("pusher_end"),
+        #     self.station.scene_graph(),
+        #     length=0.04,
+        #     radius=0.0025,
+        #     opacity=0.25,
+        # )
 
     def pre_sim_callback(self, root_context: Context) -> None: ...
 

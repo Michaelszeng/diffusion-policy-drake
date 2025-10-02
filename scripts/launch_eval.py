@@ -18,7 +18,7 @@ CONFIG_DIR = "config/sim_config/sim_sim"
 CONFIG_NAME = "gamepad_teleop.yaml"
 BASE_COMMAND = [
     "python",
-    "scripts/planar_pushing/run_sim_sim_eval.py",
+    "scripts/run_sim_sim_eval.py",
     f"--config-dir={CONFIG_DIR}",
 ]
 
@@ -41,6 +41,7 @@ class JobConfig:
     num_trials: int = -1
     seed: int = 0
     continue_flag: bool = False
+    group_key: str = ""
 
     def __str__(self):
         return (
@@ -49,7 +50,8 @@ class JobConfig:
             f"config_name={self.config_name}, "
             f"num_trials={self.num_trials}, "
             f"seed={self.seed}, "
-            f"continue_flag={self.continue_flag}"
+            f"continue_flag={self.continue_flag}, "
+            f"group_key={self.group_key}"
         )
 
     def __repr__(self):
@@ -114,6 +116,19 @@ def get_checkpoint_root_and_name(checkpoint_path):
     return checkpoint_root, checkpoint_name
 
 
+def _make_unique_group_key(base_key, existing_groups):
+    """Return a stable key that differentiates duplicate training runs."""
+    if base_key not in existing_groups:
+        return base_key
+
+    suffix = 2
+    while True:
+        candidate = f"{base_key} (entry {suffix})"
+        if candidate not in existing_groups:
+            return candidate
+        suffix += 1
+
+
 def load_jobs_from_csv(csv_file):
     """Load checkpoint groups, where each group consists of one or more checkpoints."""
     if not os.path.exists(csv_file):
@@ -131,6 +146,7 @@ def load_jobs_from_csv(csv_file):
             if checkpoint_path.endswith(".ckpt"):
                 assert os.path.exists(checkpoint_path), f"Checkpoint file '{checkpoint_path}' does not exist."
                 checkpoint_root, checkpoint_file = get_checkpoint_root_and_name(checkpoint_path)
+                group_key = _make_unique_group_key(checkpoint_root, job_groups)
 
                 job_config = JobConfig(
                     checkpoint_path=checkpoint_path,
@@ -138,31 +154,29 @@ def load_jobs_from_csv(csv_file):
                     config_name=config_name,
                     seed=0,
                     continue_flag=False,
+                    group_key=group_key,
                 )
-                # assert checkpoint_root not in job_groups
-                job_groups[checkpoint_root] = {checkpoint_file: job_config}
+                job_groups[group_key] = {checkpoint_file: job_config}
 
             # If evaluating all checkpoints from a training run, create a group
             else:
                 checkpoint_group = {}
                 checkpoints_dir = os.path.join(checkpoint_path, "checkpoints")
+                group_key = _make_unique_group_key(checkpoint_path, job_groups)
                 for checkpoint_file in os.listdir(checkpoints_dir):
                     if checkpoint_file.endswith(".ckpt"):
                         full_checkpoint_path = os.path.join(checkpoints_dir, checkpoint_file)
-                        (
-                            checkpoints_root,
-                            checkpoint_file,
-                        ) = get_checkpoint_root_and_name(full_checkpoint_path)
+                        _, checkpoint_file = get_checkpoint_root_and_name(full_checkpoint_path)
                         job_config = JobConfig(
                             checkpoint_path=full_checkpoint_path,
                             run_dir=os.path.join(run_dir, checkpoint_file),
                             config_name=config_name,
                             seed=0,
                             continue_flag=False,
+                            group_key=group_key,
                         )
                         checkpoint_group[checkpoint_file] = job_config
-                # assert checkpoints_root not in job_groups
-                job_groups[checkpoints_root] = checkpoint_group
+                job_groups[group_key] = checkpoint_group
 
     return job_groups
 
@@ -418,8 +432,7 @@ def main():
         success_rates = {group: {} for group in job_groups.keys()}
         num_jobs_per_group = {group: 0 for group in job_groups.keys()}
         for job in jobs_to_run:
-            group, checkpoint_file = get_checkpoint_root_and_name(job.checkpoint_path)
-            num_jobs_per_group[group] += 1
+            num_jobs_per_group[job.group_key] += 1
 
         print(f"\nRound {i + 1} of {len(num_trials)}: Running {len(jobs_to_run)} jobs")
         for group, num_jobs in num_jobs_per_group.items():
@@ -451,10 +464,11 @@ def main():
             for future in as_completed(futures):
                 job_result = future.result()
                 if job_result is not None:
-                    group, checkpoint_file = get_checkpoint_root_and_name(job_result.job_config.checkpoint_path)
+                    job_config = job_result.job_config
                 else:
                     job_config = futures[future]
-                    group, checkpoint_file = get_checkpoint_root_and_name(job_config.checkpoint_path)
+                group = job_config.group_key
+                _, checkpoint_file = get_checkpoint_root_and_name(job_config.checkpoint_path)
                 assert (
                     checkpoint_file not in success_rates[group]
                 ), f"Duplicate checkpoint {checkpoint_file} in group {group}"

@@ -54,7 +54,7 @@ diffusion_policy_config:
   debug: false
   device: 'cuda:0'
   cfg_overrides:
-    n_action_steps: 8
+    n_action_steps: 6
 use_hardware: false
 pusher_z_offset: 0.015
 camera_configs:
@@ -124,7 +124,7 @@ multi_run_config:
   _target_: planning_through_contact.simulation.planar_pushing_sim_config.MultiRunConfig
   num_runs: 100
   max_attempt_duration: 75
-  seed: 0
+  seed: 17
   slider_type: ${slider_type}
   arbitrary_shape_pickle_path: ${arbitrary_shape_pickle_path}
   pusher_start_pose: ${pusher_start_pose}

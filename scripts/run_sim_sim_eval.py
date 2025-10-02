@@ -64,8 +64,6 @@ class SimulationMode(Enum):
 
 class SimSimEval:
     def __init__(self, cfg: OmegaConf, output_dir=None):
-        # start meshcat
-        print("Station meshcat")
         station_meshcat = StartMeshcat()
 
         if cfg.use_realtime:
