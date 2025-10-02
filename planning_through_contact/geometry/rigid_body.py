@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -24,7 +24,7 @@ class RigidBody:
     @classmethod
     def from_drake(
         cls,
-        shape: DrakeShape | DrakeBox,
+        shape: Union[DrakeShape, DrakeBox],
         rigid_body: DrakeRigidBody,
         name: Optional[str] = None,
     ) -> "RigidBody":

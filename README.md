@@ -7,8 +7,10 @@ Michael's personal diffusion policy experiments/implementation/research in the R
 This project uses [Poetry](https://python-poetry.org/) for dependency management.
 
 ### Prerequisites
-- Python 3.10
+- Python 3.9 or 3.10
 - Poetry (for dependency management)
+
+### Local Installation:
 
 1. **Install Poetry** (if not already installed):
 ```bash
@@ -51,9 +53,23 @@ poetry install
 source $(poetry env info --path)/bin/activate
 ```
 
+### Supercloud Installation:
+```bash
+module load anaconda/2023b
+pip install drake  # TODO: instructions for local drake build?
+pip install huggingface-hub==0.25.2 --no-deps
+pip install diffusers==0.11.1 --no-deps
+pip install numba==0.60.0
+pip install wandb
+pip install einops
+pip install zarr
+```
+
 
 
 ## Running
+
+### Running Locally
 
 Parallel Experiments:
 ```bash
@@ -68,3 +84,23 @@ Single Experiment:
 ```bash
 python scripts/run_sim_sim_eval.py --config-dir=config/sim_config/sim_sim --config-name=gamepad_teleop_carbon 'diffusion_policy_config.checkpoint="/home/michzeng/diffusion-policy/data/outputs/planar_pushing/2_obs/checkpoints/latest.ckpt"'
 ```
+
+### Running on Supercloud:
+```bash
+# Interactively:
+LLsub -i full
+module load anaconda/2023b
+wandb offline  # Supercloud compute nodes have no internet
+python scripts/launch_eval.py \
+    --csv-path config/main_launch_eval.txt \
+    --max-concurrent-jobs 8 \
+    --num-trials 50 50 100 \
+    --drop-threshold 0.05
+
+# or:
+python -m scripts.run_sim_sim_eval --config-dir=config/sim_config/sim_sim --config-name=gamepad_teleop_carbon 'diffusion_policy_config.checkpoint="/home/michzeng/diffusion-policy/data/outputs/planar_pushing/2_obs/checkpoints/latest.ckpt"'
+
+# Non-interactively:
+LLsub ./submit_eval.sh -s 20 -g volta:1
+```
+

@@ -222,9 +222,9 @@ class Directives:
 
 def load_scenario(
     *,
-    filename: str | None = None,
-    data: str | None = None,
-    scenario_name: str | None = None,
+    filename: typing.Optional[str] = None,
+    data: typing.Optional[str] = None,
+    scenario_name: typing.Optional[str] = None,
     defaults: Scenario = Scenario(),
 ):
     warnings.warn("load_scenario is deprecated. Use LoadScenario instead.")
@@ -233,9 +233,9 @@ def load_scenario(
 
 def add_scenario(
     *,
-    filename: str | None = None,
-    data: str | None = None,
-    scenario_name: str | None = None,
+    filename: typing.Optional[str] = None,
+    data: typing.Optional[str] = None,
+    scenario_name: typing.Optional[str] = None,
     defaults: Scenario = Scenario(),
 ):
     warnings.warn("add_directives is deprecated. Use AppendDirectives instead.")
@@ -245,9 +245,9 @@ def add_scenario(
 # TODO(russt): load from url (using packagemap).
 def LoadScenario(
     *,
-    filename: str | None = None,
-    data: str | None = None,
-    scenario_name: str | None = None,
+    filename: typing.Optional[str] = None,
+    data: typing.Optional[str] = None,
+    scenario_name: typing.Optional[str] = None,
     defaults: Scenario = Scenario(),
 ) -> Scenario:
     """Implements the command-line handling logic for scenario data.
@@ -292,9 +292,9 @@ def LoadScenario(
 def AppendDirectives(
     scenario: Scenario,
     *,
-    filename: str | None = None,
-    data: str | None = None,
-    scenario_name: str | None = None,
+    filename: typing.Optional[str] = None,
+    data: typing.Optional[str] = None,
+    scenario_name: typing.Optional[str] = None,
 ) -> Scenario:
     """Append additional directives to an existing scenario.
 
@@ -375,11 +375,11 @@ def _PopulatePlantOrDiagram(
     plant: MultibodyPlant,
     parser: Parser,
     scenario: Scenario,
-    model_instance_names: typing.List[str] | None,
+    model_instance_names: typing.Optional[typing.List[str]],
     add_frozen_child_instances: bool = True,
     package_xmls: typing.List[str] = [],
-    parser_preload_callback: typing.Callable[[Parser], None] | None = None,
-    parser_prefinalize_callback: typing.Callable[[Parser], None] | None = None,
+    parser_preload_callback: typing.Optional[typing.Callable[[Parser], None]] = None,
+    parser_prefinalize_callback: typing.Optional[typing.Callable[[Parser], None]] = None,
 ) -> None:
     """See MakeMultibodyPlant and MakeRobotDiagram for details."""
     if model_instance_names is None:
@@ -433,11 +433,11 @@ def _PopulatePlantOrDiagram(
 def MakeMultibodyPlant(
     scenario: Scenario,
     *,
-    model_instance_names: typing.List[str] | None = None,
+    model_instance_names: typing.Optional[typing.List[str]] = None,
     add_frozen_child_instances: bool = False,
     package_xmls: typing.List[str] = [],
-    parser_preload_callback: typing.Callable[[Parser], None] | None = None,
-    parser_prefinalize_callback: typing.Callable[[Parser], None] | None = None,
+    parser_preload_callback: typing.Optional[typing.Callable[[Parser], None]] = None,
+    parser_prefinalize_callback: typing.Optional[typing.Callable[[Parser], None]] = None,
 ) -> MultibodyPlant:
     """Use a scenario to create a MultibodyPlant. This is intended, e.g., to facilitate
     easily building subsets of a scenario, for instance, to make a plant for a
@@ -490,11 +490,11 @@ def MakeMultibodyPlant(
 def MakeRobotDiagram(
     scenario: Scenario,
     *,
-    model_instance_names: typing.List[str] | None = None,
+    model_instance_names: typing.Optional[typing.List[str]] = None,
     add_frozen_child_instances: bool = True,
     package_xmls: typing.List[str] = [],
-    parser_preload_callback: typing.Callable[[Parser], None] | None = None,
-    parser_prefinalize_callback: typing.Callable[[Parser], None] | None = None,
+    parser_preload_callback: typing.Optional[typing.Callable[[Parser], None]] = None,
+    parser_prefinalize_callback: typing.Optional[typing.Callable[[Parser], None]] = None,
 ) -> RobotDiagram:
     """Use a scenario to create a RobotDiagram (MultibodyPlant + SceneGraph). This is
     intended, e.g., to facilitate easily building subsets of a scenario, for instance,
@@ -853,13 +853,13 @@ def _ApplyCameraConfigSim(*, config: CameraConfig, builder: DiagramBuilder, lcm_
 
 def MakeHardwareStation(
     scenario: Scenario,
-    meshcat: Meshcat | None = None,
+    meshcat: typing.Optional[Meshcat] = None,
     *,
     package_xmls: typing.List[str] = [],
     hardware: bool = False,
-    parser_preload_callback: typing.Callable[[Parser], None] | None = None,
-    parser_prefinalize_callback: typing.Callable[[Parser], None] | None = None,
-    prebuild_callback: typing.Callable[[DiagramBuilder], None] | None = None,
+    parser_preload_callback: typing.Optional[typing.Callable[[Parser], None]] = None,
+    parser_prefinalize_callback: typing.Optional[typing.Callable[[Parser], None]] = None,
+    prebuild_callback: typing.Optional[typing.Callable[[DiagramBuilder], None]] = None,
 ) -> Diagram:
     """Make a diagram encapsulating a simulation of (or the communications
     interface to/from) a physical robot, including sensors and controllers.
@@ -1313,7 +1313,7 @@ def _ApplyCameraLcmIdInterface(
 
 def _MakeHardwareStationInterface(
     scenario: Scenario,
-    meshcat: Meshcat | None = None,
+    meshcat: typing.Optional[Meshcat] = None,
     *,
     package_xmls: typing.List[str] = [],
 ) -> Diagram:
@@ -1394,8 +1394,8 @@ def AddPointClouds(
     scenario: Scenario,
     station: Diagram,
     builder: DiagramBuilder,
-    poses_output_port: OutputPort | None = None,
-    meshcat: Meshcat | None = None,
+    poses_output_port: typing.Optional[OutputPort] = None,
+    meshcat: typing.Optional[Meshcat] = None,
 ) -> typing.Mapping[str, DepthImageToPointCloud]:
     """
     Adds one DepthImageToPointCloud system to the `builder` for each camera in `scenario`, and connects it to the
