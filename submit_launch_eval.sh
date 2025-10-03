@@ -49,6 +49,6 @@ echo "[submit_training.sh] Config: $CONFIG_PATH"
 
 python scripts/launch_eval.py \
     --csv-path "$CONFIG_PATH" \
-    --max-concurrent-jobs 12 \
+    --max-concurrent-jobs 15 \
     --num-trials 50 50 100 \
     --drop-threshold 0.05
