@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Usage
-# LLsub ./submit_training.sh -s 20 -g volta:1
+# ./submit_launch_eval.sh [path/to/config.txt]
+# Example (LLsub): LLsub ./submit_training.sh -s 20 -g volta:1
 
 # Initialize and Load Modules
 echo "[submit_training.sh] Loading modules and virtual environment."
@@ -30,12 +31,24 @@ DATE=`date +"%Y.%m.%d"`
 TIME=`date +"%H.%M.%S"`
 export cHYDRA_FULL_ERROR=1
 
+# Read config path from first argument or use default
+DEFAULT_CONFIG_PATH="config/all_action_horizons_launch_eval_supercloud.txt"
+CONFIG_PATH="${1:-$DEFAULT_CONFIG_PATH}"
+
+# Validate config file exists
+if [ ! -f "$CONFIG_PATH" ]; then
+    echo "[submit_training.sh] ERROR: Config file not found: $CONFIG_PATH"
+    echo "[submit_training.sh] Provide a valid .txt config path as the first argument."
+    exit 1
+fi
+
 echo "[submit_training.sh] Running eval code..."
 echo "[submit_training.sh] Date: $DATE"
 echo "[submit_training.sh] Time: $TIME"
+echo "[submit_training.sh] Config: $CONFIG_PATH"
 
 python scripts/launch_eval.py \
-    --csv-path config/all_action_horizons_launch_eval_supercloud.txt \
+    --csv-path "$CONFIG_PATH" \
     --max-concurrent-jobs 8 \
     --num-trials 50 50 100 \
     --drop-threshold 0.05
