@@ -387,6 +387,7 @@ class SimSimEval:
         Reset environment with new initial slider pose.
         Use seed sequence to ensure deterministic sequence of initial slider poses is produced every run.
         """
+        print(f"Resetting environment with seed {self.multi_run_config.seed} and trial index {trial_idx}.")
         slider = self.sim_config.slider
         ss = np.random.SeedSequence([self.multi_run_config.seed, trial_idx])
         trial_rng = np.random.default_rng(ss)
