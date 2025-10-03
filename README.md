@@ -43,7 +43,13 @@ Otherwise, add this to your `project.toml` file to use the latest pip wheel of d
 drake = "1.45.0"
 ```
 
-5. Obtain MOSEK license
+5. Install MOSEK
+Download [MOSEK](mosektoolslinux64x86.tar.bz2) and unzip it in your home directory. Obtain an academic license. Place `mosek.lic` file in your home directory. Add this to your `~/.bashrc`: 
+
+```
+export MOSEKLM_LICENSE_FILE=~/mosek.lic
+export LD_LIBRARY_PATH=$HOME/mosek/11.0/tools/platform/linux64x86/bin:$LD_LIBRARY_PATH
+```
 
 
 6. **Install dependencies**:

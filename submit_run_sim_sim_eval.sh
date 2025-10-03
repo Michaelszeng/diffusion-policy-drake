@@ -19,6 +19,8 @@ export PYTHONPATH="/home/gridsan/mzeng/diffusion-policy-experiments${PYTHONPATH:
 
 # Export MOSEK license file
 export MOSEKLM_LICENSE_FILE=/home/gridsan/mzeng/mosek.lic
+# Expose MOSEK shared library file
+export LD_LIBRARY_PATH=/home/gridsan/mzeng/mosek/11.0/tools/platform/linux64x86/bin:$LD_LIBRARY_PATH
 
 # Assume current directory is diffusion-policy-drake
 # source .robodiff/bin/activate || echo "Training with anaconda/2023b module instead of venv"
