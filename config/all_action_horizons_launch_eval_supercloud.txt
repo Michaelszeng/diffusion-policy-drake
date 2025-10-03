@@ -1,12 +1,12 @@
 checkpoint_path,run_dir,config_name
-/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/baseline/T_a_2,gamepad_teleop_carbon_1_action_steps.yaml
+/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/baseline/T_a_1,gamepad_teleop_carbon_1_action_steps.yaml
 /home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/baseline/T_a_2,gamepad_teleop_carbon_2_action_steps.yaml
 /home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/baseline/T_a_4,gamepad_teleop_carbon_4_action_steps.yaml
 /home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/baseline/T_a_6,gamepad_teleop_carbon_6_action_steps.yaml
-/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/baseline/T_a_6,gamepad_teleop_carbon_7_action_steps.yaml
+/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/baseline/T_a_7,gamepad_teleop_carbon_7_action_steps.yaml
 /home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/baseline/T_a_8,gamepad_teleop_carbon_8_action_steps.yaml
-/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/baseline/T_a_6,gamepad_teleop_carbon_9_action_steps.yaml
+/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/baseline/T_a_9,gamepad_teleop_carbon_9_action_steps.yaml
 /home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/baseline/T_a_10,gamepad_teleop_carbon_10_action_steps.yaml
-/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/baseline/T_a_10,gamepad_teleop_carbon_11_action_steps.yaml
+/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/baseline/T_a_11,gamepad_teleop_carbon_11_action_steps.yaml
 /home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/baseline/T_a_12,gamepad_teleop_carbon_12_action_steps.yaml
 /home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/baseline/T_a_14,gamepad_teleop_carbon_14_action_steps.yaml
