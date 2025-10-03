@@ -6,18 +6,22 @@
 # Initialize and Load Modules
 echo "[submit_training.sh] Loading modules and virtual environment."
 source /etc/profile
-# module load anaconda/2023b
-module load anaconda/Python-ML-2024b
-
-# Expose the diffusion-policy repo to Python without Poetry
-export PYTHONPATH="/home/gridsan/mzeng/diffusion-policy-experiments${PYTHONPATH:+:${PYTHONPATH}}"
-
-# Assume current directory is diffusion-policy-drake
-# source .robodiff/bin/activate || echo "Training with anaconda/2023b module instead of venv"
+module load anaconda/Python-ML-2025a
 
 # Set wandb to offline since Supercloud has no internet access
 echo "[submit_training.sh] Setting wandb to offline."
 wandb offline
+
+export PYTHONPATH=$PYTHONPATH:$(pwd)
+
+# Expose the diffusion-policy repo to Python without Poetry
+export PYTHONPATH="/home/gridsan/mzeng/diffusion-policy-experiments${PYTHONPATH:+:${PYTHONPATH}}"
+
+# Export MOSEK license file
+export MOSEKLM_LICENSE_FILE=/home/gridsan/mzeng/mosek.lic
+
+# Assume current directory is diffusion-policy-drake
+# source .robodiff/bin/activate || echo "Training with anaconda/2023b module instead of venv"
 
 # Export date, time, environment variables
 DATE=`date +"%Y.%m.%d"`

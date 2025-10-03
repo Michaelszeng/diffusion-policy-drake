@@ -43,12 +43,15 @@ Otherwise, add this to your `project.toml` file to use the latest pip wheel of d
 drake = "1.45.0"
 ```
 
-5. **Install dependencies**:
+5. Obtain MOSEK license
+
+
+6. **Install dependencies**:
 ```bash
 poetry install
 ```
 
-6. **Activate the Poetry environment**:
+7. **Activate the Poetry environment**:
 ```bash
 source $(poetry env info --path)/bin/activate
 ```
@@ -76,6 +79,16 @@ pip install mpld3
 pip install pyvirtualdisplay
 
 pip install -e /home/gridsan/mzeng/diffusion-policy-experiments --no-deps
+```
+
+8. Setting up Supercloud Running Scripts
+
+`scp` MOSEK license file to SuperCloud.
+
+Modify the path to your license file in `submit_run_sim_sim_eval.sh` and `submit_launch_eval.sh`:
+
+```bash
+export MOSEKLM_LICENSE_FILE=/home/gridsan/mzeng/mosek.lic
 ```
 
 
