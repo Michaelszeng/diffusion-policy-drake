@@ -35,7 +35,7 @@ echo "[submit_training.sh] Date: $DATE"
 echo "[submit_training.sh] Time: $TIME"
 
 python scripts/launch_eval.py \
-    --csv-path config/all_action_horizons_launch_eval.txt \
+    --csv-path config/all_action_horizons_launch_eval_supercloud.txt \
     --max-concurrent-jobs 8 \
     --num-trials 50 50 100 \
     --drop-threshold 0.05
