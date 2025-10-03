@@ -55,14 +55,27 @@ source $(poetry env info --path)/bin/activate
 
 ### Supercloud Installation:
 ```bash
-module load anaconda/2023b
-pip install drake  # TODO: instructions for local drake build?
+# module load anaconda/2023b
+module load anaconda/Python-ML-2024b  # This module contains a lot of the dependencies we need
+# Now, we install the remaining dependencies we need
+pip install drake --no-deps  # TODO: instructions for local drake build?
+pip install manipulation==2025.1.3 --no-deps
 pip install huggingface-hub==0.25.2 --no-deps
 pip install diffusers==0.11.1 --no-deps
 pip install numba==0.60.0
+pip install opencv-python==4.9.0.80 --no-deps
+pip install robomimic==0.3.0 --no-deps
+pip install hydra-core
 pip install wandb
 pip install einops
 pip install zarr
+pip install lxml
+pip install lxml-html-clean
+pip install pydot
+pip install mpld3
+pip install pyvirtualdisplay
+
+pip install -e /home/gridsan/mzeng/diffusion-policy-experiments --no-deps
 ```
 
 
@@ -88,7 +101,7 @@ python scripts/run_sim_sim_eval.py --config-dir=config/sim_config/sim_sim --conf
 ### Running on Supercloud:
 ```bash
 # Interactively:
-LLsub -i full
+LLsub -i -s 20 -g volta:1
 module load anaconda/2023b
 wandb offline  # Supercloud compute nodes have no internet
 python scripts/launch_eval.py \
@@ -98,7 +111,7 @@ python scripts/launch_eval.py \
     --drop-threshold 0.05
 
 # or:
-python -m scripts.run_sim_sim_eval --config-dir=config/sim_config/sim_sim --config-name=gamepad_teleop_carbon 'diffusion_policy_config.checkpoint="/home/michzeng/diffusion-policy/data/outputs/planar_pushing/2_obs/checkpoints/latest.ckpt"'
+python -m scripts.run_sim_sim_eval --config-dir=config/sim_config/sim_sim --config-name=gamepad_teleop_carbon 'diffusion_policy_config.checkpoint="/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs/checkpoints/latest.ckpt"'
 
 # Non-interactively:
 LLsub ./submit_eval.sh -s 20 -g volta:1

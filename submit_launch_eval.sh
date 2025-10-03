@@ -6,7 +6,11 @@
 # Initialize and Load Modules
 echo "[submit_training.sh] Loading modules and virtual environment."
 source /etc/profile
-module load anaconda/2023b
+# module load anaconda/2023b
+module load anaconda/Python-ML-2024b
+
+# Expose the diffusion-policy repo to Python without Poetry
+export PYTHONPATH="/home/gridsan/mzeng/diffusion-policy-experiments${PYTHONPATH:+:${PYTHONPATH}}"
 
 # Assume current directory is diffusion-policy-drake
 # source .robodiff/bin/activate || echo "Training with anaconda/2023b module instead of venv"
