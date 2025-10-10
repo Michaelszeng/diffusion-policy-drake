@@ -58,7 +58,7 @@ class JobConfig:
         )
 
     def __repr__(self):
-        return
+        return str(self)
 
 
 @dataclass
@@ -204,7 +204,11 @@ def get_next_free_meshcat_port(start_port: int = 7000) -> int:
     return next_port
 
 
-def run_simulation(job_config, job_number, total_jobs, round_number, total_rounds):
+def free_meshcat_port(meshcat_port):
+    get_next_free_meshcat_port.used_ports.remove(meshcat_port)
+
+
+def run_simulation(job_config, job_number, total_jobs, round_number, total_rounds, meshcat_port):
     """Run a single simulation with specified checkpoint, run directory, and config name."""
     checkpoint_path = job_config.checkpoint_path
     run_dir = job_config.run_dir
@@ -240,6 +244,7 @@ def run_simulation(job_config, job_number, total_jobs, round_number, total_round
     print(f"=== Round ({round_number} of {total_rounds}): JOB {job_number} of {total_jobs} ===")
     print(f"=== JOB START: {run_dir} ===")
     print(command_str)
+    print(f"Meshcat URL: http://localhost:{meshcat_port}")
     print("=" * 100 + "\n")
 
     result = subprocess.run(command, capture_output=True, text=True)
@@ -459,64 +464,86 @@ def main():
     args = parse_arguments()
     csv_file = args.csv_path
     max_concurrent_jobs = args.max_concurrent_jobs
-    num_trials = args.num_trials_per_round  # default: [50, 50, 100]
-    drop_threshold = args.drop_threshold  # default: 0.05
+    num_trials_per_round = args.num_trials_per_round  # default: [50, 50, 100]
+    drop_threshold = args.drop_threshold
 
+    # 1 job group per line in csv file; each group contains all jobs corresponding to a single checkpoint
     job_groups = load_jobs_from_csv(csv_file)
     if not validate_job_groups(job_groups, args.force):
         return
-    print_diagnostic_info(job_groups, max_concurrent_jobs, num_trials, drop_threshold)
 
+    print_diagnostic_info(job_groups, max_concurrent_jobs, num_trials_per_round, drop_threshold)
+
+    # Flatten all job configs from all groups into a single list
     jobs_to_run = [job_config for group in job_groups.values() for job_config in group.values()]
-    for i, trial in enumerate(num_trials):
-        round_number = i + 1
-        success_rates = {group: {} for group in job_groups.keys()}
-        num_jobs_per_group = {group: 0 for group in job_groups.keys()}
-        for job in jobs_to_run:
-            num_jobs_per_group[job.group_key] += 1
 
-        print(f"\nRound {i + 1} of {len(num_trials)}: Running {len(jobs_to_run)} jobs")
+    # Execute multiple rounds of evaluation, with increasing trial counts, dropping poor checkpoints after each round
+    for i, num_trails_in_round_i in enumerate(num_trials_per_round):
+        round_number = i + 1
+
+        # Initialize tracking structures for every job group for this round
+        success_rates = {group: {} for group in job_groups.keys()}  # Track success rates by group and checkpoint
+        num_jobs_per_group = {group: 0 for group in job_groups.keys()}  # Count jobs per group
+
+        # Count how many jobs will run in each group for this round
+        for job_config in jobs_to_run:
+            num_jobs_per_group[job_config.group_key] += 1
+
+        # Print total number of jobs and jobs per checkpoint
+        print(f"\nRound {i + 1} of {len(num_trials_per_round)}: Running {len(jobs_to_run)} jobs:")
         for group, num_jobs in num_jobs_per_group.items():
             print(f"  {group}: {num_jobs} job(s)")
 
-        # Overwrite job configs
+        # Update job configurations for this round
         for job_config in jobs_to_run:
-            job_config.num_trials = trial
-            job_config.seed = i
-            job_config.continue_flag = i != 0
+            job_config.num_trials = num_trails_in_round_i  # Set number of trials for this round
+            job_config.seed = i  # Set seed to round number for reproducibility
+            job_config.continue_flag = i != 0  # Continue from previous results if not first round
 
-        # Run jobs
+        # Execute jobs concurrently using ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=max_concurrent_jobs) as executor:
-            # Submit jobs
+            # Submit all jobs to the thread pool
             futures = {}
-            for job_number, job in enumerate(jobs_to_run):
+            meshcat_port = get_next_free_meshcat_port()
+            for job_number, job_config in enumerate(jobs_to_run):
+                # Submit each job to the executor
                 future = executor.submit(
                     run_simulation,
-                    job,
+                    job_config,
                     job_number + 1,
                     len(jobs_to_run),
                     round_number,
-                    len(num_trials),
+                    len(num_trials_per_round),
+                    meshcat_port,
                 )
-                futures[future] = job
-                time.sleep(1)  # prevent syncing issues with arbitrary_shape.sdf
+                futures[future] = job_config
+                time.sleep(0.1)  # So that prints don't overlap
 
-            # Wait for jobs to finish
+            # Wait for all jobs to complete and collect results
             for future in as_completed(futures):
                 job_result = future.result()
+
                 if job_result is not None:
                     job_config = job_result.job_config
-                else:
+                else:  # Failed job
                     job_config = futures[future]
+
                 group = job_config.group_key
                 _, checkpoint_file = get_checkpoint_root_and_name(job_config.checkpoint_path)
+
+                # Ensure no duplicate checkpoint names within a group
                 assert (
                     checkpoint_file not in success_rates[group]
                 ), f"Duplicate checkpoint {checkpoint_file} in group {group}"
-                success_rates[group][checkpoint_file] = job_result
 
-        # Determine new jobs to run
-        if i != len(num_trials) - 1:
+                # Store the result for this checkpoint
+                success_rates[group][checkpoint_file] = job_result
+                # Free up the meshcat port for reuse
+                free_meshcat_port(meshcat_port)
+
+        # After each round (except the last), determine which jobs to keep for the next round
+        # This implements a multi-round elimination strategy based on statistical significance
+        if i != len(num_trials_per_round) - 1:
             jobs_to_run = determine_new_jobs_to_run(success_rates, drop_threshold)
 
     print("\n✅ All jobs finished.\n")

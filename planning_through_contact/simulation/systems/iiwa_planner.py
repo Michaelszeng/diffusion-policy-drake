@@ -158,7 +158,7 @@ class IiwaPlanner(LeafSystem):
                 state.get_mutable_abstract_state(int(self._mode_index)).set_value(IiwaPlannerMode.WAIT_PUSH)
                 logger.debug(f"Switching to WAIT_PUSH mode at time {current_time}.")
                 current_pos = self.get_input_port(self._iiwa_position_measured_index).Eval(context)
-                logger.debug(f"Current position: {current_pos}")
+                # logger.debug(f"Current position: {current_pos}")
             return
         elif mode == IiwaPlannerMode.WAIT_PUSH:
             if current_time > times["wait_push_final"]:
@@ -166,7 +166,7 @@ class IiwaPlanner(LeafSystem):
                 state.get_mutable_abstract_state(int(self._mode_index)).set_value(IiwaPlannerMode.PUSHING)
                 logger.debug(f"Switching to PUSHING mode at time {current_time}.")
                 current_pos = self.get_input_port(self._iiwa_position_measured_index).Eval(context)
-                logger.debug(f"Current position: {current_pos}")
+                # logger.debug(f"Current position: {current_pos}")
                 global time_pushing_transition
                 time_pushing_transition = current_time
             return

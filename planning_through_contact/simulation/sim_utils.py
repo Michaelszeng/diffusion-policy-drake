@@ -4,7 +4,6 @@ import time
 from dataclasses import dataclass, field
 from typing import List, Literal, Optional, Tuple
 
-import hydra
 import numpy as np
 import numpy.typing as npt
 from lxml import etree
@@ -36,10 +35,6 @@ from planning_through_contact.geometry.planar.planar_pose import PlanarPose
 from planning_through_contact.geometry.rigid_body import RigidBody
 from planning_through_contact.simulation.controllers.robot_system_base import (
     RobotSystemBase,
-)
-from planning_through_contact.tools.utils import (
-    create_processed_mesh_primitive_sdf_file,
-    load_primitive_info,
 )
 from planning_through_contact.visualize.colors import COLORS
 
@@ -159,32 +154,6 @@ def get_slider_sdf_path(sim_config, models_folder: str) -> str:
     else:
         raise NotImplementedError(f"Body '{sim_config.slider}' not supported")
     return slider_sdf_url
-
-
-def create_arbitrary_shape_sdf_file(cfg, sim_config):
-    sdf_path = get_slider_sdf_path(sim_config, models_folder)
-    try:
-        os.remove(sdf_path)
-    except FileNotFoundError:
-        pass  # File doesn't exist, that's fine
-
-    translation = -np.concatenate(
-        [sim_config.slider.geometry.com_offset.flatten(), [0]]
-    )  # Plan assumes that object frame = CoM frame
-
-    primitive_info = load_primitive_info(cfg.arbitrary_shape_pickle_path)
-    create_processed_mesh_primitive_sdf_file(
-        primitive_info=primitive_info,
-        visual_mesh_file_path=cfg.arbitrary_shape_visual_mesh_path,
-        physical_properties=hydra.utils.instantiate(cfg.physical_properties),
-        global_translation=translation,
-        output_file_path=sdf_path,
-        model_name="arbitrary",
-        base_link_name="arbitrary",
-        is_hydroelastic="hydroelastic" in cfg.contact_model.lower(),
-        rgba=sim_config.arbitrary_shape_rgba,
-        com_override=[0.0, 0.0, 0.0],  # Plan assumes that object frame = CoM frame
-    )
 
 
 ## Domain Randomization Functions

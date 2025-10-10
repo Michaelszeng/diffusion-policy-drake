@@ -3,7 +3,7 @@ job_logging:
     large_gcs:
       level: DEBUG
     drake:
-      level: INFO
+      level: WARNING
     # Set the entire planning_through_contact package to DEBUG
     planning_through_contact:
       level: DEBUG

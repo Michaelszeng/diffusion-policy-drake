@@ -54,7 +54,7 @@ if [ ! -f "$CONFIG_PATH" ]; then
     exit 1
 fi
 
-DEFAULT_CONCURRENT_JOBS=15
+DEFAULT_CONCURRENT_JOBS=10
 CONCURRENT_JOBS="${2:-$DEFAULT_CONCURRENT_JOBS}"
 
 echo "[submit_launch_eval.sh] Running eval code..."

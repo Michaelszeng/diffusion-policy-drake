@@ -12,7 +12,7 @@ import hydra
 import numpy as np
 import zarr
 from omegaconf import OmegaConf
-from pydrake.all import HPolyhedron, StartMeshcat, VPolytope
+from pydrake.all import HPolyhedron, Meshcat, MeshcatParams, VPolytope
 from pydrake.common import configure_logging
 
 from planning_through_contact.geometry.collision_checker import CollisionChecker
@@ -35,10 +35,7 @@ from planning_through_contact.simulation.environments.simulated_real_table_envir
 from planning_through_contact.simulation.planar_pushing_sim_config import (
     PlanarPushingSimConfig,
 )
-from planning_through_contact.simulation.sim_utils import (
-    create_arbitrary_shape_sdf_file,
-    get_slider_initial_pose_within_workspace,
-)
+from planning_through_contact.simulation.sim_utils import get_slider_initial_pose_within_workspace
 from planning_through_contact.visualize.analysis import (
     CombinedPlanarPushingLogs,
     PlanarPushingLog,
@@ -64,10 +61,12 @@ class SimulationMode(Enum):
 
 class SimSimEval:
     def __init__(self, cfg: OmegaConf, output_dir=None):
-        # params = MeshcatParams()
-        # params.port = cfg.meshcat_port
-        # station_meshcat = StartMeshcat(params)
-        station_meshcat = StartMeshcat()
+        params = MeshcatParams()
+        params.port = cfg.meshcat_port
+        params.host = "localhost"
+        params.web_url_pattern = f"http://{params.host}:{params.port}"
+        station_meshcat = Meshcat(params=params)
+        print(f"Starting Meshcat at {params.web_url_pattern}")
 
         if cfg.use_realtime:
             print_blue("Setting use_realtime to False for faster eval")
@@ -90,10 +89,6 @@ class SimSimEval:
             assert os.path.exists(os.path.join(self.output_dir, "summary.pkl"))
 
         self.workspace = self.multi_run_config.workspace
-
-        if cfg.slider_type == "arbitrary":
-            # create arbitrary shape sdf file
-            create_arbitrary_shape_sdf_file(cfg, self.sim_config)
 
         # Diffusion Policy
         position_source = DiffusionPolicySource(self.sim_config.diffusion_policy_config)
@@ -238,6 +233,9 @@ class SimSimEval:
 
                 # Reset environment
                 if reset_environment:
+                    # Print trial outcome
+                    print_blue(f"Trial {num_completed_trials + 1}: {result.value}")
+
                     # Logging
                     final_error = self.get_final_error()
                     summary["final_error"].append(final_error)
@@ -390,7 +388,7 @@ class SimSimEval:
         Reset environment with new initial slider pose.
         Use seed sequence to ensure deterministic sequence of initial slider poses is produced every run.
         """
-        print(f"Resetting environment with seed {self.multi_run_config.seed} and trial index {trial_idx}.")
+        print("=" * 100 + f"\nResetting environment for trial {trial_idx}.")
         slider = self.sim_config.slider
         ss = np.random.SeedSequence([self.multi_run_config.seed, trial_idx])
         trial_rng = np.random.default_rng(ss)
