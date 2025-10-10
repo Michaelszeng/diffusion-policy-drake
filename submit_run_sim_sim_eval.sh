@@ -30,6 +30,9 @@ DATE=`date +"%Y.%m.%d"`
 TIME=`date +"%H.%M.%S"`
 export HYDRA_FULL_ERROR=1
 
+# Silence LCM error when running on Supercloud
+export LCM_DEFAULT_URL=memq://null
+
 echo "[submit_run_sim_sim_eval.sh] Running eval code..."
 echo "[submit_run_sim_sim_eval.sh] Date: $DATE"
 echo "[submit_run_sim_sim_eval.sh] Time: $TIME"

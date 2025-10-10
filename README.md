@@ -157,13 +157,7 @@ python scripts/launch_eval.py \
 ```bash
 # Interactively:
 LLsub -i -s 20 -g volta:1
-module load anaconda/2023b
-wandb offline  # Supercloud compute nodes have no internet
-python scripts/launch_eval.py \
-    --csv-path config/main_launch_eval.txt \
-    --max-concurrent-jobs 8 \
-    --num-trials 50 50 100 \
-    --drop-threshold 0.05
+./submit_launch_eval.sh config/all_action_horizons_launch_eval_supercloud.txt
 
 # Non-interactively:
 LLsub ./submit_launch_eval.sh config/all_action_horizons_launch_eval_supercloud.txt -s 20 -g volta:1
