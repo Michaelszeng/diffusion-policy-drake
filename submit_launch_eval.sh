@@ -69,7 +69,7 @@ echo "[submit_launch_eval.sh] Number of GPUs to use: $NUM_GPUS"
 
 python scripts/launch_eval.py \
     --csv-path "$CONFIG_PATH" \
-    --max-concurrent-jobs-per-gpu $CONCURRENT_JOBS \
+    --max-concurrent-jobs-per-gpu $CONCURRENT_JOBS_PER_GPU \
     --num-gpus $NUM_GPUS \
     --num-trials 50 50 100 \
     --drop-threshold 0.05 \
