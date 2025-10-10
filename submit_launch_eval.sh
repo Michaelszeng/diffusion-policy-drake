@@ -31,6 +31,19 @@ DATE=`date +"%Y.%m.%d"`
 TIME=`date +"%H.%M.%S"`
 export HYDRA_FULL_ERROR=1
 
+# Silence LCM error when running on Supercloud
+export LCM_DEFAULT_URL=memq://null
+
+# Fix lack of X server when running on Supercloud
+export DISPLAY=:99
+export LIBGL_ALWAYS_SOFTWARE=1
+export __GLX_VENDOR_LIBRARY_NAME=mesa
+export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
+export GALLIUM_DRIVER=llvmpipe
+XKB_DISABLE=1 Xvfb $DISPLAY -screen 0 1400x900x24 -nolisten tcp &
+xvfb_pid=$!
+trap "kill $xvfb_pid" EXIT
+
 # Read config path from first argument or use default
 DEFAULT_CONFIG_PATH="config/all_action_horizons_launch_eval_supercloud.txt"
 CONFIG_PATH="${1:-$DEFAULT_CONFIG_PATH}"
@@ -42,14 +55,18 @@ if [ ! -f "$CONFIG_PATH" ]; then
     exit 1
 fi
 
+DEFAULT_CONCURRENT_JOBS=15
+CONCURRENT_JOBS="${2:-$DEFAULT_CONCURRENT_JOBS}"
+
 echo "[submit_launch_eval.sh] Running eval code..."
 echo "[submit_launch_eval.sh] Date: $DATE"
 echo "[submit_launch_eval.sh] Time: $TIME"
 echo "[submit_launch_eval.sh] Config: $CONFIG_PATH"
+echo "[submit_launch_eval.sh] Concurrent jobs: $CONCURRENT_JOBS"
 
 python scripts/launch_eval.py \
     --csv-path "$CONFIG_PATH" \
-    --max-concurrent-jobs 15 \
+    --max-concurrent-jobs $CONCURRENT_JOBS \
     --num-trials 50 50 100 \
     --drop-threshold 0.05 \
     --force
