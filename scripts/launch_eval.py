@@ -192,6 +192,18 @@ def load_jobs_from_csv(csv_file):
     return job_groups
 
 
+def get_next_free_meshcat_port(start_port: int = 7000) -> int:
+    if not hasattr(get_next_free_meshcat_port, 'used_ports'):
+        get_next_free_meshcat_port.used_ports = set()
+
+    next_port = start_port
+    while next_port in get_next_free_meshcat_port.used_ports:
+        next_port += 1
+
+    get_next_free_meshcat_port.used_ports.add(next_port)
+    return next_port
+
+
 def run_simulation(job_config, job_number, total_jobs, round_number, total_rounds):
     """Run a single simulation with specified checkpoint, run directory, and config name."""
     checkpoint_path = job_config.checkpoint_path
@@ -203,12 +215,15 @@ def run_simulation(job_config, job_number, total_jobs, round_number, total_round
     overrides = job_config.overrides
     assert num_trials > 0, "num_trials must be greater than 0"
 
+    meshcat_port = get_next_free_meshcat_port()
+
     command = BASE_COMMAND + [
         f"--config-name={config_name}",
         f'diffusion_policy_config.checkpoint="{checkpoint_path}"',
         f'hydra.run.dir="{run_dir}"',
         f"multi_run_config.seed={seed}",
         f"multi_run_config.num_runs={num_trials}",
+        f"meshcat_port={meshcat_port}",
         f"++continue_eval={continue_flag}",
     ]
 

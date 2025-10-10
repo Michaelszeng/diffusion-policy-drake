@@ -1,8 +1,7 @@
 #!/bin/bash
 
 # Usage
-# ./submit_launch_eval.sh [path/to/config.txt]
-# Example (LLsub): LLsub ./submit_launch_eval.sh -s 20 -g volta:1
+# LLsub ./submit_launch_eval.sh -s 20 -g volta:1
 
 # Initialize and Load Modules
 echo "[submit_launch_eval.sh] Loading modules and virtual environment."

@@ -12,7 +12,7 @@ import hydra
 import numpy as np
 import zarr
 from omegaconf import OmegaConf
-from pydrake.all import HPolyhedron, StartMeshcat, VPolytope
+from pydrake.all import HPolyhedron, MeshcatParams, StartMeshcat, VPolytope
 from pydrake.common import configure_logging
 
 from planning_through_contact.geometry.collision_checker import CollisionChecker
@@ -64,7 +64,9 @@ class SimulationMode(Enum):
 
 class SimSimEval:
     def __init__(self, cfg: OmegaConf, output_dir=None):
-        station_meshcat = StartMeshcat()
+        params = MeshcatParams()
+        params.port = cfg.meshcat_port
+        station_meshcat = StartMeshcat(params)
 
         if cfg.use_realtime:
             print_blue("Setting use_realtime to False for faster eval")
