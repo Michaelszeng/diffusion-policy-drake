@@ -1,15 +1,15 @@
 #!/bin/bash
 
 # Usage
-# LLsub ./submit_training.sh -s 20 -g volta:1
+# LLsub ./submit_run_sim_sim_eval.sh -s 20 -g volta:1
 
 # Initialize and Load Modules
-echo "[submit_training.sh] Loading modules and virtual environment."
+echo "[submit_run_sim_sim_eval.sh] Loading modules and virtual environment."
 source /etc/profile
 module load anaconda/Python-ML-2025a
 
 # Set wandb to offline since Supercloud has no internet access
-echo "[submit_training.sh] Setting wandb to offline."
+echo "[submit_run_sim_sim_eval.sh] Setting wandb to offline."
 wandb offline
 
 export PYTHONPATH=$PYTHONPATH:$(pwd)
@@ -28,11 +28,11 @@ export LD_LIBRARY_PATH=/home/gridsan/mzeng/mosek/11.0/tools/platform/linux64x86/
 # Export date, time, environment variables
 DATE=`date +"%Y.%m.%d"`
 TIME=`date +"%H.%M.%S"`
-export cHYDRA_FULL_ERROR=1
+export HYDRA_FULL_ERROR=1
 
-echo "[submit_training.sh] Running eval code..."
-echo "[submit_training.sh] Date: $DATE"
-echo "[submit_training.sh] Time: $TIME"
+echo "[submit_run_sim_sim_eval.sh] Running eval code..."
+echo "[submit_run_sim_sim_eval.sh] Date: $DATE"
+echo "[submit_run_sim_sim_eval.sh] Time: $TIME"
 
 python scripts/run_sim_sim_eval.py \
     --config-dir=config/sim_config/sim_sim \
