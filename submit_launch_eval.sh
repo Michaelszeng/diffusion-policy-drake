@@ -54,18 +54,23 @@ if [ ! -f "$CONFIG_PATH" ]; then
     exit 1
 fi
 
-DEFAULT_CONCURRENT_JOBS=10
-CONCURRENT_JOBS="${2:-$DEFAULT_CONCURRENT_JOBS}"
+DEFAULT_CONCURRENT_JOBS_PER_GPU=10
+CONCURRENT_JOBS_PER_GPU="${2:-$DEFAULT_CONCURRENT_JOBS_PER_GPU}"
+
+DEFAULT_NUM_GPUS=2
+NUM_GPUS="${3:-$DEFAULT_NUM_GPUS}"
 
 echo "[submit_launch_eval.sh] Running eval code..."
 echo "[submit_launch_eval.sh] Date: $DATE"
 echo "[submit_launch_eval.sh] Time: $TIME"
 echo "[submit_launch_eval.sh] Config: $CONFIG_PATH"
-echo "[submit_launch_eval.sh] Concurrent jobs: $CONCURRENT_JOBS"
+echo "[submit_launch_eval.sh] Concurrent jobs per GPU: $CONCURRENT_JOBS_PER_GPU"
+echo "[submit_launch_eval.sh] Number of GPUs to use: $NUM_GPUS"
 
 python scripts/launch_eval.py \
     --csv-path "$CONFIG_PATH" \
-    --max-concurrent-jobs $CONCURRENT_JOBS \
+    --max-concurrent-jobs-per-gpu $CONCURRENT_JOBS \
+    --num-gpus $NUM_GPUS \
     --num-trials 50 50 100 \
     --drop-threshold 0.05 \
     --force

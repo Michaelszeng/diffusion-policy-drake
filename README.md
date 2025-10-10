@@ -148,7 +148,7 @@ Parallel Experiments:
 ```bash
 python scripts/launch_eval.py \
     --csv-path config/main_launch_eval.txt \
-    --max-concurrent-jobs 5 \
+    --max-concurrent-jobs-per-gpu 5 \
     --num-trials 50 50 100 \
     --drop-threshold 0.05
 ```
@@ -156,10 +156,10 @@ python scripts/launch_eval.py \
 ### Running Parallel Evals on Supercloud:
 ```bash
 # Interactively:
-LLsub -i -s 20 -g volta:1
+LLsub -i -s 40 -g volta:2
 ./submit_launch_eval.sh config/all_action_horizons_launch_eval_supercloud.txt
 
 # Non-interactively:
-LLsub ./submit_launch_eval.sh config/all_action_horizons_launch_eval_supercloud.txt -s 20 -g volta:1
+LLsub ./submit_launch_eval.sh config/all_action_horizons_launch_eval_supercloud.txt -s 40 -g volta:2
 ```
 

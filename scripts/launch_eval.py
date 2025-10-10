@@ -5,7 +5,9 @@ import pickle
 import shlex
 import shutil
 import subprocess
+import threading
 import time
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
@@ -25,7 +27,7 @@ BASE_COMMAND = [
 
 # ---------------------------------------------------------
 # Example Usage:
-# python launch_evals.py --csv-path /path/to/jobs.csv --max-concurrent-jobs 8
+# python launch_evals.py --csv-path /path/to/jobs.csv --max-concurrent-jobs-per-gpu 8
 #
 # CSV file format:
 # checkpoint_path,run_dir,config_name (optional),overrides (optional)
@@ -44,6 +46,7 @@ class JobConfig:
     continue_flag: bool = False
     group_key: str = ""
     overrides: str = ""  # Hydra config overrides (space-separated)
+    gpu_id: int = 0
 
     def __str__(self):
         return (
@@ -81,6 +84,37 @@ class JobResult:
         return str(self)
 
 
+class GPUQueue:
+    """
+    Queue manager for distributing jobs across GPUs. Simply ensures no GPU is assigned more than max_jobs_per_gpu
+    concurrent jobs.
+    """
+
+    def __init__(self, num_gpus, max_jobs_per_gpu):
+        self.num_gpus = num_gpus
+        self.max_jobs_per_gpu = max_jobs_per_gpu
+        self.gpu_job_counts = defaultdict(int)
+        self.lock = threading.Lock()
+
+    def get_next_gpu(self):
+        """Get the next available GPU, or None if all are full."""
+        with self.lock:
+            for gpu_id in range(self.num_gpus):
+                if self.gpu_job_counts[gpu_id] < self.max_jobs_per_gpu:
+                    self.gpu_job_counts[gpu_id] += 1
+                    return gpu_id
+            return None
+
+    def release_gpu(self, gpu_id):
+        """Release a GPU slot."""
+        with self.lock:
+            self.gpu_job_counts[gpu_id] = max(0, self.gpu_job_counts[gpu_id] - 1)
+
+    def get_total_max_jobs(self):
+        """Get total maximum concurrent jobs across all GPUs."""
+        return self.num_gpus * self.max_jobs_per_gpu
+
+
 def parse_arguments():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Launch multiple Hydra simulation commands concurrently.")
@@ -91,10 +125,16 @@ def parse_arguments():
         help="Path to the CSV file containing checkpoint paths, run directories, and optional config names.",
     )
     parser.add_argument(
-        "--max-concurrent-jobs",
+        "--max-concurrent-jobs-per-gpu",
         type=int,
-        default=8,
-        help="Maximum number of concurrent jobs (default: 8).",
+        default=4,
+        help="Maximum number of concurrent jobs per GPU (default: 4).",
+    )
+    parser.add_argument(
+        "--num-gpus",
+        type=int,
+        default=1,
+        help="Number of GPUs to use for the evaluation (default: 1).",
     )
     parser.add_argument(
         "--num-trials-per-round",
@@ -165,6 +205,7 @@ def load_jobs_from_csv(csv_file):
                     continue_flag=False,
                     group_key=group_key,
                     overrides=overrides,
+                    gpu_id=0,  # Default to 0 for single checkpoint evaluation
                 )
                 job_groups[group_key] = {checkpoint_file: job_config}
 
@@ -185,6 +226,7 @@ def load_jobs_from_csv(csv_file):
                             continue_flag=False,
                             group_key=group_key,
                             overrides=overrides,
+                            gpu_id=0,  # Default to 0 for single checkpoint evaluation
                         )
                         checkpoint_group[checkpoint_file] = job_config
                 job_groups[group_key] = checkpoint_group
@@ -208,7 +250,7 @@ def free_meshcat_port(meshcat_port):
     get_next_free_meshcat_port.used_ports.remove(meshcat_port)
 
 
-def run_simulation(job_config, job_number, total_jobs, round_number, total_rounds, meshcat_port):
+def run_simulation(job_config, job_number, total_jobs, round_number, total_rounds, gpu_queue, meshcat_port):
     """Run a single simulation with specified checkpoint, run directory, and config name."""
     checkpoint_path = job_config.checkpoint_path
     run_dir = job_config.run_dir
@@ -221,64 +263,77 @@ def run_simulation(job_config, job_number, total_jobs, round_number, total_round
 
     meshcat_port = get_next_free_meshcat_port()
 
-    command = BASE_COMMAND + [
-        f"--config-name={config_name}",
-        f'diffusion_policy_config.checkpoint="{checkpoint_path}"',
-        f'hydra.run.dir="{run_dir}"',
-        f"multi_run_config.seed={seed}",
-        f"multi_run_config.num_runs={num_trials}",
-        f"meshcat_port={meshcat_port}",
-        f"++continue_eval={continue_flag}",
-    ]
-
-    # Add any custom overrides from CSV
-    if overrides:
-        # Split by spaces but respect quoted strings
-        override_list = shlex.split(overrides)
-        command.extend(override_list)
-
-    # Format command string with each option on a new line for readability
-    command_str = " \\\n    ".join(command)
-
-    print("\n" + "=" * 100)
-    print(f"=== Round ({round_number} of {total_rounds}): JOB {job_number} of {total_jobs} ===")
-    print(f"=== JOB START: {run_dir} ===")
-    print(command_str)
-    print(f"Meshcat URL: http://localhost:{meshcat_port}")
-    print("=" * 100 + "\n")
-
-    result = subprocess.run(command, capture_output=True, text=True)
-
-    if result.returncode == 0:
-        print(f"\n✅ Completed: {run_dir}")
-
-        # Compute success rate
-        summary_file = os.path.join(run_dir, "summary.pkl")
-        with open(summary_file, "rb") as f:
-            summary = pickle.load(f)
-        num_successful_trials = len(summary["successful_trials"])
-        num_trials = len(summary["trial_times"])
-        success_rate = num_successful_trials / num_trials
-    else:
-        print(f"\n❌ Failed: {run_dir}\nError: {result.stderr}")
-        success_rate = None
-
-    print("\n" + "=" * 50)
-    print(f"=== JOB END: {run_dir} ===")
-    if success_rate is not None:
-        print(f"Success Rate: {success_rate:.6f} ({num_successful_trials}/{num_trials})")
-    else:
-        print("Success Rate: None")
-    print("=" * 50 + "\n")
-
-    if success_rate is None:
+    # Get GPU assignment from queue
+    gpu_id = gpu_queue.get_next_gpu()
+    if gpu_id is None:
+        print(f"No GPU available for job {job_number}, this shouldn't happen with proper queue management")
         return None
-    else:
-        return JobResult(
-            num_successful_trials=len(summary["successful_trials"]),
-            num_trials=len(summary["trial_times"]),
-            job_config=job_config,
-        )
+
+    try:
+        command = BASE_COMMAND + [
+            f"--config-name={config_name}",
+            f'diffusion_policy_config.checkpoint="{checkpoint_path}"',
+            f'hydra.run.dir="{run_dir}"',
+            f"multi_run_config.seed={seed}",
+            f"multi_run_config.num_runs={num_trials}",
+            f"meshcat_port={meshcat_port}",
+            f"++continue_eval={continue_flag}",
+            f"diffusion_policy_config.device=cuda:{gpu_id}",
+        ]
+
+        # Add any custom overrides from CSV
+        if overrides:
+            # Split by spaces but respect quoted strings
+            override_list = shlex.split(overrides)
+            command.extend(override_list)
+
+        # Format command string with each option on a new line for readability
+        command_str = " \\\n    ".join(command)
+
+        print("\n" + "=" * 100)
+        print(f"=== Round ({round_number} of {total_rounds}): JOB {job_number} of {total_jobs} ===")
+        print(f"=== JOB START: {run_dir} ===")
+        print(f"=== GPU: {gpu_id} ===")
+        print(command_str)
+        print(f"Meshcat URL: http://localhost:{meshcat_port}")
+        print("=" * 100 + "\n")
+
+        result = subprocess.run(command, capture_output=True, text=True)
+
+        if result.returncode == 0:
+            print(f"\n✅ Completed: {run_dir} (GPU {gpu_id})")
+
+            # Compute success rate
+            summary_file = os.path.join(run_dir, "summary.pkl")
+            with open(summary_file, "rb") as f:
+                summary = pickle.load(f)
+            num_successful_trials = len(summary["successful_trials"])
+            num_trials = len(summary["trial_times"])
+            success_rate = num_successful_trials / num_trials
+        else:
+            print(f"\n❌ Failed: {run_dir} (GPU {gpu_id})\nError: {result.stderr}")
+            success_rate = None
+
+        print("\n" + "=" * 50)
+        print(f"=== JOB END: {run_dir} (GPU {gpu_id}) ===")
+        if success_rate is not None:
+            print(f"Success Rate: {success_rate:.6f} ({num_successful_trials}/{num_trials})")
+        else:
+            print("Success Rate: None")
+        print("=" * 50 + "\n")
+
+        if success_rate is None:
+            return None
+        else:
+            return JobResult(
+                num_successful_trials=len(summary["successful_trials"]),
+                num_trials=len(summary["trial_times"]),
+                job_config=job_config,
+            )
+
+    finally:
+        # Always release the GPU slot
+        gpu_queue.release_gpu(gpu_id)
 
 
 def validate_job_groups(job_groups, force=False):
@@ -316,13 +371,15 @@ def validate_job_groups(job_groups, force=False):
     return True
 
 
-def print_diagnostic_info(job_groups, max_concurrent_jobs, num_trials, drop_threshold):
+def print_diagnostic_info(job_groups, max_concurrent_jobs_per_gpu, num_gpus, num_trials, drop_threshold):
     num_jobs = sum([len(group) for group in job_groups.values()])
+    total_max_jobs = num_gpus * max_concurrent_jobs_per_gpu
 
     print("\nDiagnostic Information:")
     print("=======================")
-    print(f"Evaluating {len(job_groups)} training runs, consistenting of {num_jobs} checkpoints")
-    print(f"Running with {max_concurrent_jobs} jobs")
+    print(f"Evaluating {len(job_groups)} training runs, consisting of {num_jobs} checkpoints")
+    print(f"Using {num_gpus} GPU(s) with {max_concurrent_jobs_per_gpu} jobs per GPU")
+    print(f"Total maximum concurrent jobs: {total_max_jobs}")
     print(f"Checkpoints will be compared at {num_trials} trials.")
     print(
         f"During each comparison, if the probability that a checkpoint "
@@ -463,16 +520,20 @@ def print_best_checkpoints(success_rates, job_groups):
 def main():
     args = parse_arguments()
     csv_file = args.csv_path
-    max_concurrent_jobs = args.max_concurrent_jobs
+    max_concurrent_jobs_per_gpu = args.max_concurrent_jobs_per_gpu
+    num_gpus = args.num_gpus
     num_trials_per_round = args.num_trials_per_round  # default: [50, 50, 100]
     drop_threshold = args.drop_threshold
+
+    # Create GPU queue manager
+    gpu_queue = GPUQueue(num_gpus, max_concurrent_jobs_per_gpu)
 
     # 1 job group per line in csv file; each group contains all jobs corresponding to a single checkpoint
     job_groups = load_jobs_from_csv(csv_file)
     if not validate_job_groups(job_groups, args.force):
         return
 
-    print_diagnostic_info(job_groups, max_concurrent_jobs, num_trials_per_round, drop_threshold)
+    print_diagnostic_info(job_groups, max_concurrent_jobs_per_gpu, num_gpus, num_trials_per_round, drop_threshold)
 
     # Flatten all job configs from all groups into a single list
     jobs_to_run = [job_config for group in job_groups.values() for job_config in group.values()]
@@ -501,7 +562,8 @@ def main():
             job_config.continue_flag = i != 0  # Continue from previous results if not first round
 
         # Execute jobs concurrently using ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=max_concurrent_jobs) as executor:
+        total_max_jobs = gpu_queue.get_total_max_jobs()
+        with ThreadPoolExecutor(max_workers=total_max_jobs) as executor:
             # Submit all jobs to the thread pool
             futures = {}
             meshcat_port = get_next_free_meshcat_port()
@@ -514,6 +576,7 @@ def main():
                     len(jobs_to_run),
                     round_number,
                     len(num_trials_per_round),
+                    gpu_queue,
                     meshcat_port,
                 )
                 futures[future] = job_config
