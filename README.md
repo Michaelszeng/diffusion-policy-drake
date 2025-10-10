@@ -166,6 +166,6 @@ python scripts/launch_eval.py \
     --drop-threshold 0.05
 
 # Non-interactively:
-LLsub ./submit_launch_eval.sh -s 20 -g volta:1
+LLsub ./submit_launch_eval.sh config/all_action_horizons_launch_eval_supercloud.txt -s 20 -g volta:1
 ```
 

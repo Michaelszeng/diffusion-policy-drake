@@ -109,6 +109,11 @@ def parse_arguments():
         default=0.05,
         help="Threshold for dropping checkpoints (default: 0.05).",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip confirmation prompts and automatically overwrite existing output directories.",
+    )
     return parser.parse_args()
 
 
@@ -256,7 +261,7 @@ def run_simulation(job_config, job_number, total_jobs, round_number, total_round
         )
 
 
-def validate_job_groups(job_groups):
+def validate_job_groups(job_groups, force=False):
     if not job_groups:
         print("No valid jobs found in the CSV file. Please check the file.")
         return False
@@ -276,13 +281,17 @@ def validate_job_groups(job_groups):
             output_dir = job.run_dir
             if os.path.exists(output_dir):
                 print(f"Output dir '{output_dir}' already exists. Running this job will delete the existing contents.")
-                resp = input("Run job anyways? [y/n]: ")
-                if resp.lower() == "y":
-                    print("Deleting output directory...\n")
+                if force:
+                    print("--force flag set. Deleting output directory...\n")
                     shutil.rmtree(output_dir)
                 else:
-                    print("Exiting...")
-                    return False
+                    resp = input("Run job anyways? [y/n]: ")
+                    if resp.lower() == "y":
+                        print("Deleting output directory...\n")
+                        shutil.rmtree(output_dir)
+                    else:
+                        print("Exiting...")
+                        return False
 
     return True
 
@@ -439,7 +448,7 @@ def main():
     drop_threshold = args.drop_threshold  # default: 0.05
 
     job_groups = load_jobs_from_csv(csv_file)
-    if not validate_job_groups(job_groups):
+    if not validate_job_groups(job_groups, args.force):
         return
     print_diagnostic_info(job_groups, max_concurrent_jobs, num_trials, drop_threshold)
 
