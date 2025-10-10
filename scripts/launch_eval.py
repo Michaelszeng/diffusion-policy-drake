@@ -270,6 +270,9 @@ def run_simulation(job_config, job_number, total_jobs, round_number, total_round
         return None
 
     try:
+        env = os.environ.copy()
+        env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)  # hide the other GPU
+
         command = BASE_COMMAND + [
             f"--config-name={config_name}",
             f'diffusion_policy_config.checkpoint="{checkpoint_path}"',
@@ -278,7 +281,7 @@ def run_simulation(job_config, job_number, total_jobs, round_number, total_round
             f"multi_run_config.num_runs={num_trials}",
             f"meshcat_port={meshcat_port}",
             f"++continue_eval={continue_flag}",
-            f"diffusion_policy_config.device=cuda:{gpu_id}",
+            "diffusion_policy_config.device=cuda:0",  # 0 in the *local* namespace
         ]
 
         # Add any custom overrides from CSV
@@ -298,7 +301,7 @@ def run_simulation(job_config, job_number, total_jobs, round_number, total_round
         print(f"Meshcat URL: http://localhost:{meshcat_port}")
         print("=" * 100 + "\n")
 
-        result = subprocess.run(command, capture_output=True, text=True)
+        result = subprocess.run(command, capture_output=True, text=True, env=env)
 
         if result.returncode == 0:
             print(f"\n✅ Completed: {run_dir} (GPU {gpu_id})")
