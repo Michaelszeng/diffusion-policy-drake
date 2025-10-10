@@ -64,7 +64,6 @@ source $(poetry env info --path)/bin/activate
 
 ### Supercloud Installation:
 ```bash
-# module load anaconda/2023b
 module load anaconda/Python-ML-2024b  # This module contains a lot of the dependencies we need
 # Now, we install the remaining dependencies we need
 pip install drake --no-deps  # TODO: instructions for local drake build?
@@ -101,23 +100,60 @@ export MOSEKLM_LICENSE_FILE=/home/gridsan/mzeng/mosek.lic
 
 ## Running
 
-### Running Locally
+### Setting up the Eval Script
 
-Parallel Experiments:
-```bash
-python scripts/launch_eval.py \
-    --csv-path config/main_launch_eval.txt \
-    --max-concurrent-jobs 8 \
-    --num-trials 50 50 100 \
-    --drop-threshold 0.05
+To run parallel evaluations, we launch `scripts/launch_eval.py` with a provided CSV config file with the following format:
+
+```csv
+checkpoint_path,run_dir,config_name,overrides
 ```
+
+- **checkpoint_path**: Path to checkpoint file (.ckpt) or directory containing checkpoints
+- **run_dir**: Output directory for evaluation results
+- **config_name**: (Optional) Config file to use (defaults to `gamepad_teleop.yaml`)
+- **overrides**: (Optional) Hydra config overrides (space-separated, quoted if needed)
+
+Below describes how to set overrides for the yaml config file:
+
+#### Single Override
+
+```csv
+checkpoint_path,run_dir,config_name,overrides
+/path/to/checkpoint,eval/output,gamepad_teleop_carbon.yaml,diffusion_policy_config.cfg_overrides.n_action_steps=4
+```
+
+#### Multiple Overrides (Space-separated)
+
+```csv
+checkpoint_path,run_dir,config_name,overrides
+/path/to/checkpoint,eval/output,gamepad_teleop_carbon.yaml,diffusion_policy_config.cfg_overrides.n_action_steps=4 multi_run_config.max_attempt_duration=100
+```
+
+#### Multiple Overrides (Quoted, for complex values)
+
+```csv
+checkpoint_path,run_dir,config_name,overrides
+/path/to/checkpoint,eval/output,gamepad_teleop_carbon.yaml,"diffusion_policy_config.cfg_overrides.n_action_steps=4 pusher_start_pose.x=0.5"
+```
+
+
+### Running Locally
 
 Single Experiment:
 ```bash
 python scripts/run_sim_sim_eval.py --config-dir=config/sim_config/sim_sim --config-name=gamepad_teleop_carbon 'diffusion_policy_config.checkpoint="/home/michzeng/diffusion-policy/data/outputs/planar_pushing/2_obs/checkpoints/latest.ckpt"'
 ```
 
-### Running on Supercloud:
+Parallel Experiments:
+```bash
+python scripts/launch_eval.py \
+    --csv-path config/main_launch_eval.txt \
+    --max-concurrent-jobs 5 \
+    --num-trials 50 50 100 \
+    --drop-threshold 0.05
+```
+
+### Running Parallel Evals on Supercloud:
 ```bash
 # Interactively:
 LLsub -i -s 20 -g volta:1
@@ -129,10 +165,7 @@ python scripts/launch_eval.py \
     --num-trials 50 50 100 \
     --drop-threshold 0.05
 
-# or:
-python -m scripts.run_sim_sim_eval --config-dir=config/sim_config/sim_sim --config-name=gamepad_teleop_carbon 'diffusion_policy_config.checkpoint="/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs/checkpoints/latest.ckpt"'
-
 # Non-interactively:
-LLsub ./submit_eval.sh -s 20 -g volta:1
+LLsub ./submit_launch_eval.sh -s 20 -g volta:1
 ```
 

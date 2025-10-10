@@ -2,6 +2,7 @@ import argparse
 import csv
 import os
 import pickle
+import shlex
 import shutil
 import subprocess
 import time
@@ -27,9 +28,9 @@ BASE_COMMAND = [
 # python launch_evals.py --csv-path /path/to/jobs.csv --max-concurrent-jobs 8
 #
 # CSV file format:
-# checkpoint_path,run_dir,config_name (optional)
-# /path/to/checkpoint1.ckpt, data/test1, custom_config.yaml
-# /path/to/checkpoint2.ckpt, data/test2
+# checkpoint_path,run_dir,config_name (optional),overrides (optional)
+# /path/to/checkpoint1.ckpt, data/test1, custom_config.yaml, diffusion_policy_config.cfg_overrides.n_action_steps=4
+# /path/to/checkpoint2.ckpt, data/test2, , "param1=value1 param2=value2"
 # ---------------------------------------------------------
 
 
@@ -42,6 +43,7 @@ class JobConfig:
     seed: int = 0
     continue_flag: bool = False
     group_key: str = ""
+    overrides: str = ""  # Hydra config overrides (space-separated)
 
     def __str__(self):
         return (
@@ -51,7 +53,8 @@ class JobConfig:
             f"num_trials={self.num_trials}, "
             f"seed={self.seed}, "
             f"continue_flag={self.continue_flag}, "
-            f"group_key={self.group_key}"
+            f"group_key={self.group_key}, "
+            f"overrides={self.overrides}"
         )
 
     def __repr__(self):
@@ -141,6 +144,7 @@ def load_jobs_from_csv(csv_file):
             checkpoint_path = row.get("checkpoint_path", "").strip()
             run_dir = row.get("run_dir", "").strip()
             config_name = row.get("config_name", CONFIG_NAME).strip()
+            overrides = row.get("overrides", "").strip()
 
             # If evaluating a single checkpoint, create a single-element group
             if checkpoint_path.endswith(".ckpt"):
@@ -155,6 +159,7 @@ def load_jobs_from_csv(csv_file):
                     seed=0,
                     continue_flag=False,
                     group_key=group_key,
+                    overrides=overrides,
                 )
                 job_groups[group_key] = {checkpoint_file: job_config}
 
@@ -174,6 +179,7 @@ def load_jobs_from_csv(csv_file):
                             seed=0,
                             continue_flag=False,
                             group_key=group_key,
+                            overrides=overrides,
                         )
                         checkpoint_group[checkpoint_file] = job_config
                 job_groups[group_key] = checkpoint_group
@@ -189,6 +195,7 @@ def run_simulation(job_config, job_number, total_jobs, round_number, total_round
     num_trials = job_config.num_trials
     seed = job_config.seed
     continue_flag = job_config.continue_flag
+    overrides = job_config.overrides
     assert num_trials > 0, "num_trials must be greater than 0"
 
     command = BASE_COMMAND + [
@@ -199,13 +206,21 @@ def run_simulation(job_config, job_number, total_jobs, round_number, total_round
         f"multi_run_config.num_runs={num_trials}",
         f"++continue_eval={continue_flag}",
     ]
-    command_str = " ".join(command)
 
-    print("\n" + "=" * 50)
+    # Add any custom overrides from CSV
+    if overrides:
+        # Split by spaces but respect quoted strings
+        override_list = shlex.split(overrides)
+        command.extend(override_list)
+
+    # Format command string with each option on a new line for readability
+    command_str = " \\\n    ".join(command)
+
+    print("\n" + "=" * 100)
     print(f"=== Round ({round_number} of {total_rounds}): JOB {job_number} of {total_jobs} ===")
     print(f"=== JOB START: {run_dir} ===")
     print(command_str)
-    print("=" * 50 + "\n")
+    print("=" * 100 + "\n")
 
     result = subprocess.run(command, capture_output=True, text=True)
 
@@ -297,6 +312,8 @@ def print_diagnostic_info(job_groups, max_concurrent_jobs, num_trials, drop_thre
             print(f"  {i + 1}. {os.path.basename(job.checkpoint_path)}")
         print(f"Eval directory: {job.run_dir}")
         print(f"Config Name: {job.config_name}")
+        if job.overrides:
+            print(f"Overrides: {job.overrides}")
         print()
     print()
 

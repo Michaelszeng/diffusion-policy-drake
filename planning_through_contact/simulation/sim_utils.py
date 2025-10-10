@@ -163,8 +163,10 @@ def get_slider_sdf_path(sim_config, models_folder: str) -> str:
 
 def create_arbitrary_shape_sdf_file(cfg, sim_config):
     sdf_path = get_slider_sdf_path(sim_config, models_folder)
-    if os.path.exists(sdf_path):
+    try:
         os.remove(sdf_path)
+    except FileNotFoundError:
+        pass  # File doesn't exist, that's fine
 
     translation = -np.concatenate(
         [sim_config.slider.geometry.com_offset.flatten(), [0]]
