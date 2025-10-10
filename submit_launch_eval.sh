@@ -40,7 +40,7 @@ export LIBGL_ALWAYS_SOFTWARE=1
 export __GLX_VENDOR_LIBRARY_NAME=mesa
 export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
 export GALLIUM_DRIVER=llvmpipe
-XKB_DISABLE=1 Xvfb $DISPLAY -screen 0 1400x900x24 -nolisten tcp &
+Xvfb "$DISPLAY" -screen 0 1400x900x24 -nolisten tcp > /tmp/xvfb.log 2>&1 &  # silence Xvfb output
 xvfb_pid=$!
 trap "kill $xvfb_pid" EXIT
 
