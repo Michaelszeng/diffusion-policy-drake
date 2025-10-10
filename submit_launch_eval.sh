@@ -64,7 +64,7 @@ echo "[submit_launch_eval.sh] Time: $TIME"
 echo "[submit_launch_eval.sh] Config: $CONFIG_PATH"
 echo "[submit_launch_eval.sh] Concurrent jobs: $CONCURRENT_JOBS"
 
-python scripts/launch _eval.py \
+python scripts/launch_eval.py \
     --csv-path "$CONFIG_PATH" \
     --max-concurrent-jobs $CONCURRENT_JOBS \
     --num-trials 50 50 100 \
