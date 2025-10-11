@@ -70,6 +70,7 @@ echo "[submit_launch_eval.sh] Config: $CONFIG_PATH"
 echo "[submit_launch_eval.sh] Concurrent jobs per GPU: $CONCURRENT_JOBS_PER_GPU"
 echo "[submit_launch_eval.sh] Number of GPUs to use: $NUM_GPUS"
 
+# -u option to unbuffer the stdout and stderr outputs
 python -u scripts/launch_eval.py \
     --csv-path "$CONFIG_PATH" \
     --max-concurrent-jobs-per-gpu $CONCURRENT_JOBS_PER_GPU \
