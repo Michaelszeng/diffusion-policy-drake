@@ -47,7 +47,7 @@ echo "[submit_run_sim_sim_eval.sh] Running eval code..."
 echo "[submit_run_sim_sim_eval.sh] Date: $DATE"
 echo "[submit_run_sim_sim_eval.sh] Time: $TIME"
 
-python scripts/run_sim_sim_eval.py \
+python -u scripts/run_sim_sim_eval.py \
     --config-dir=config/sim_config/sim_sim \
     --config-name=gamepad_teleop_carbon \
     'diffusion_policy_config.checkpoint="/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs/checkpoints/latest.ckpt"'

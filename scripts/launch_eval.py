@@ -234,23 +234,40 @@ def load_jobs_from_csv(csv_file):
     return job_groups
 
 
+# A global lock to protect access to the shared `used_ports` set.
+_meshcat_port_lock = threading.Lock()
+
+
 def get_next_free_meshcat_port(start_port: int = 7000) -> int:
-    if not hasattr(get_next_free_meshcat_port, 'used_ports'):
+    """Return an available Meshcat port number.
+
+    This function is now thread-safe. Concurrent invocations from different
+    worker threads can no longer allocate the same port at the same time.
+    """
+    if not hasattr(get_next_free_meshcat_port, "used_ports"):
+        # We store the set on the function object to keep the global footprint
+        # minimal while still sharing state between calls.
         get_next_free_meshcat_port.used_ports = set()
 
-    next_port = start_port
-    while next_port in get_next_free_meshcat_port.used_ports:
-        next_port += 1
+    with _meshcat_port_lock:
+        next_port = start_port
+        while next_port in get_next_free_meshcat_port.used_ports:
+            next_port += 1
 
-    get_next_free_meshcat_port.used_ports.add(next_port)
-    return next_port
+        get_next_free_meshcat_port.used_ports.add(next_port)
+        return next_port
 
 
 def free_meshcat_port(meshcat_port):
-    get_next_free_meshcat_port.used_ports.remove(meshcat_port)
+    """Release a previously reserved Meshcat port."""
+    if not hasattr(get_next_free_meshcat_port, "used_ports"):
+        return  # Nothing to free
+
+    with _meshcat_port_lock:
+        get_next_free_meshcat_port.used_ports.discard(meshcat_port)
 
 
-def run_simulation(job_config, job_number, total_jobs, round_number, total_rounds, gpu_queue, meshcat_port):
+def run_simulation(job_config, job_number, total_jobs, round_number, total_rounds, gpu_queue):
     """Run a single simulation with specified checkpoint, run directory, and config name."""
     checkpoint_path = job_config.checkpoint_path
     run_dir = job_config.run_dir
@@ -335,8 +352,9 @@ def run_simulation(job_config, job_number, total_jobs, round_number, total_round
             )
 
     finally:
-        # Always release the GPU slot
+        # Always release the GPU slot and meshcat port
         gpu_queue.release_gpu(gpu_id)
+        free_meshcat_port(meshcat_port)
 
 
 def validate_job_groups(job_groups, force=False):
@@ -569,7 +587,6 @@ def main():
         with ThreadPoolExecutor(max_workers=total_max_jobs) as executor:
             # Submit all jobs to the thread pool
             futures = {}
-            meshcat_port = get_next_free_meshcat_port()
             for job_number, job_config in enumerate(jobs_to_run):
                 # Submit each job to the executor
                 future = executor.submit(
@@ -580,7 +597,6 @@ def main():
                     round_number,
                     len(num_trials_per_round),
                     gpu_queue,
-                    meshcat_port,
                 )
                 futures[future] = job_config
                 time.sleep(0.1)  # So that prints don't overlap
@@ -604,8 +620,6 @@ def main():
 
                 # Store the result for this checkpoint
                 success_rates[group][checkpoint_file] = job_result
-                # Free up the meshcat port for reuse
-                free_meshcat_port(meshcat_port)
 
         # After each round (except the last), determine which jobs to keep for the next round
         # This implements a multi-round elimination strategy based on statistical significance

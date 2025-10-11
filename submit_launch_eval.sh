@@ -33,6 +33,9 @@ export HYDRA_FULL_ERROR=1
 # Silence LCM error when running on Supercloud
 export LCM_DEFAULT_URL=memq://null
 
+# Limit OpenMP threads to prevent thread exhaustion with many concurrent jobs
+export OMP_NUM_THREADS=2
+
 # Fix lack of X server when running on Supercloud
 export DISPLAY=:99
 export LIBGL_ALWAYS_SOFTWARE=1
@@ -67,10 +70,10 @@ echo "[submit_launch_eval.sh] Config: $CONFIG_PATH"
 echo "[submit_launch_eval.sh] Concurrent jobs per GPU: $CONCURRENT_JOBS_PER_GPU"
 echo "[submit_launch_eval.sh] Number of GPUs to use: $NUM_GPUS"
 
-python scripts/launch_eval.py \
+python -u scripts/launch_eval.py \
     --csv-path "$CONFIG_PATH" \
     --max-concurrent-jobs-per-gpu $CONCURRENT_JOBS_PER_GPU \
     --num-gpus $NUM_GPUS \
-    --num-trials 50 50 100 \
+    --num-trials 45 55 100 \
     --drop-threshold 0.05 \
     --force
