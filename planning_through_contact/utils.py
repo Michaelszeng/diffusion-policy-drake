@@ -1,54 +1,46 @@
 import fcntl
 import os
+import tempfile
 from contextlib import contextmanager
 
 
-@contextmanager
-def locked_open(file_path: str, mode: str = "wb"):
-    """Context manager that opens *file_path* and obtains an exclusive advisory
-    lock for the duration of the *with* block.
-
-    Parameters
-    ----------
-    file_path : str
-        Path to the file that will be opened.
-    mode : str, default "wb"
-        Mode string forwarded to :pyfunc:`open`.
-    """
-
-    # Ensure directory exists; the file may not yet exist.
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
-    with open(file_path, mode) as fh:
-        # Acquire exclusive lock
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-        try:
-            yield fh
-            # Ensure contents are flushed to disk before releasing the lock
-            fh.flush()
-            os.fsync(fh.fileno())
-        finally:
-            # Release lock regardless of success or failure
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-
-
-def _temp_path(original_path: str) -> str:
-    """Return a temporary path in the same directory as *original_path*."""
-    directory, filename = os.path.split(original_path)
-    return os.path.join(directory, f".{filename}.tmp")
-
-
 def write_atomic(file_path: str, data: str, mode: str = "w") -> None:
-    """Atomically write *data* to *file_path*.
+    """
+    Atomically write *data* to *file_path*.
 
     The content is first written to a temporary file in the same directory
     (to guarantee that os.replace is atomic on POSIX) and then moved over the
     destination. This prevents readers from observing a partially-written or
     truncated file.
     """
-
-    temp_path = _temp_path(file_path)
-    # Write to temp file with locking
-    with locked_open(temp_path, mode) as fh:
-        fh.write(data)
-    # Atomically replace target
-    os.replace(temp_path, file_path)
+    directory = os.path.dirname(file_path) or "."
+    
+    # Ensure directory exists
+    os.makedirs(directory, exist_ok=True)
+    
+    # Create a unique temporary file in the same directory
+    # The temp file gets a unique name per process/invocation to avoid races
+    fd = None
+    temp_path = None
+    try:
+        fd, temp_path = tempfile.mkstemp(dir=directory, prefix=".tmp_", text=(mode == "w"))
+        
+        # Write data to the temp file
+        with os.fdopen(fd, mode) as fh:
+            fd = None  # fdopen takes ownership
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        
+        # Atomically replace target
+        os.replace(temp_path, file_path)
+        temp_path = None  # Successfully moved
+    finally:
+        # Clean up temp file if something went wrong
+        if fd is not None:
+            os.close(fd)
+        if temp_path is not None and os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass

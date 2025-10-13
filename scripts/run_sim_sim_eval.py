@@ -145,7 +145,7 @@ class SimSimEval:
                 center=self.slider_goal_pose.vector().flatten(),
             )
 
-        # Delete log file if it already exists
+        # Delete log file if it already exists, i.e. between rounds of launch_eval.py
         if os.path.exists(os.path.join(self.output_dir, "summary.txt")):
             os.remove(os.path.join(self.output_dir, "summary.txt"))
 

@@ -39,7 +39,7 @@ from planning_through_contact.geometry.rigid_body import RigidBody
 from planning_through_contact.simulation.controllers.robot_system_base import (
     RobotSystemBase,
 )
-from planning_through_contact.utils import locked_open
+from planning_through_contact.utils import write_atomic
 from planning_through_contact.visualize.colors import COLORS
 
 package_xml_file = os.path.join(os.path.dirname(__file__), "models/package.xml")
@@ -198,21 +198,21 @@ def configure_table_and_slider_friction(
         table_urdf: Table's URDF filename
     """
     # Update Table friction
-    base_urdf = f"{models_folder}/{table_urdf}"
+    table_urdf_path = f"{models_folder}/{table_urdf}"
     parser = etree.XMLParser(recover=True)
-    tree = etree.parse(base_urdf, parser)
+    tree = etree.parse(table_urdf_path, parser)
     root = tree.getroot()
     _set_drake_friction(root, mu_dynamic, mu_static)
-    with locked_open(base_urdf, "wb") as fh:
-        tree.write(fh, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+    xml_bytes = etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+    write_atomic(table_urdf_path, xml_bytes, mode="wb")
 
     # Update Slider friction
     slider_sdf_path = get_slider_sdf_path(collision_geometry=collision_geometry)
     tree = etree.parse(slider_sdf_path, parser)
     root = tree.getroot()
     _set_drake_friction(root, mu_dynamic, mu_static)
-    with locked_open(slider_sdf_path, "wb") as fh:
-        tree.write(fh, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+    xml_bytes = etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+    write_atomic(slider_sdf_path, xml_bytes, mode="wb")
 
 
 def AddSliderAndConfigureContact(sim_config, plant, scene_graph) -> ModelInstanceIndex:
@@ -326,8 +326,8 @@ def randomize_table(
     #     # new_urdf_location = f'{models_folder}/small_table_hydroelastic_randomized.urdf'
 
     # Overwrite original URDF in-place so downstream YAML paths remain valid
-    with locked_open(base_urdf, "wb") as fh:
-        tree.write(fh, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+    xml_bytes = etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+    write_atomic(base_urdf, xml_bytes, mode="wb")
 
 
 def randomize_pusher(
@@ -353,8 +353,8 @@ def randomize_pusher(
         diffuse.text = new_diffuse_value
 
     # Overwrite original SDF so downstream paths remain valid
-    with locked_open(base_sdf, "wb") as fh:
-        tree.write(fh, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+    xml_bytes = etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+    write_atomic(base_sdf, xml_bytes, mode="wb")
 
 
 def randomize_camera_config(camera_config, translation_limit=0.01, rot_limit_deg=1.0, arbitrary_background=False):

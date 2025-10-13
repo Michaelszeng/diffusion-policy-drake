@@ -560,6 +560,7 @@ def main():
     jobs_to_run = [job_config for group in job_groups.values() for job_config in group.values()]
 
     # Execute multiple rounds of evaluation, with increasing trial counts, dropping poor checkpoints after each round
+    # Iterate through rounds
     for i, num_trails_in_round_i in enumerate(num_trials_per_round):
         round_number = i + 1
 
@@ -587,6 +588,9 @@ def main():
         with ThreadPoolExecutor(max_workers=total_max_jobs) as executor:
             # Submit all jobs to the thread pool
             futures = {}
+            # Iterate through jobs (which may consist of 50 or 100 trials) per round
+            # Each job corresponds to 1 checkpoint from 1 line in the csv file
+            # (i.e. a CSV file with 3 lines and 10 checkpoints per line --> 30 jobs)
             for job_number, job_config in enumerate(jobs_to_run):
                 # Submit each job to the executor
                 future = executor.submit(

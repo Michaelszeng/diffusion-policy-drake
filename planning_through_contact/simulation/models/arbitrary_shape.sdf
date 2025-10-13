@@ -1,5 +1,4 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<?xml version="1.0"?>
 <sdf version="1.7">
             <model name="arbitrary">
                 <link name="arbitrary">
@@ -76,11 +75,11 @@
                     </drake:mesh_resolution_hint>
             
                     <drake:mu_dynamic>
-                        0.5
+                        0.1
                     </drake:mu_dynamic>
             
                     <drake:mu_static>
-                        0.5
+                        0.1
                     </drake:mu_static>
             
             </drake:proximity_properties>
@@ -111,11 +110,11 @@
                     </drake:mesh_resolution_hint>
             
                     <drake:mu_dynamic>
-                        0.5
+                        0.1
                     </drake:mu_dynamic>
             
                     <drake:mu_static>
-                        0.5
+                        0.1
                     </drake:mu_static>
             
             </drake:proximity_properties>

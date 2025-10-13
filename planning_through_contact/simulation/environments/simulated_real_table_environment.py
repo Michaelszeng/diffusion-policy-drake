@@ -43,7 +43,6 @@ from planning_through_contact.simulation.systems.rigid_transform_to_planar_pose_
 from planning_through_contact.simulation.systems.robot_state_to_rigid_transform import (
     RobotStateToRigidTransform,
 )
-from planning_through_contact.utils import locked_open
 from planning_through_contact.visualize.colors import COLORS
 
 logger = logging.getLogger(__name__)
@@ -309,7 +308,7 @@ class SimulatedRealTableEnvironment:
             res = self._meshcat.StaticHtml()
             if save_dir:
                 recording_file = os.path.join(save_dir, recording_file)
-            with locked_open(recording_file, "w") as f:
+            with open(recording_file, "w") as f:
                 f.write(res)
 
     def get_button_values(self):
