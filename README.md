@@ -157,10 +157,10 @@ python scripts/launch_eval.py \
 ```bash
 # Interactively:
 LLsub -i -s 40 -g volta:2
-./submit_launch_eval.sh config/all_action_horizons_launch_eval_supercloud.txt
+./submit_launch_eval.sh config/<EXPERIMENT>/all_action_horizons_launch_eval_supercloud.txt
 
 # Non-interactively:
-LLsub ./submit_launch_eval.sh -s 40 -g volta:2 -- config/all_action_horizons_launch_eval_supercloud.txt
+LLsub ./submit_launch_eval.sh -s 40 -g volta:2 -- config/<EXPERIMENT>/all_action_horizons_launch_eval_supercloud.txt
 ```
 
 To monitor eval:

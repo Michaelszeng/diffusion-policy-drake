@@ -11,6 +11,7 @@ diffusion_policy_logs/
 outputs/
 multirun/
 eval/
+wandb/
 *.mp4
 *.sh.log-*
 

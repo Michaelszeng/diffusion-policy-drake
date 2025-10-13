@@ -4,8 +4,8 @@ Plot success rates across action horizons using evaluation summaries.
 This utility scans an evaluation experiment directory that contains sub-folders
 of the form ``T_a_<horizon>``. Each of those folders is expected to contain one
 or more checkpoint directories (for example ``epoch=0030...`` or
-``latest.ckpt``). Every checkpoint directory must include a ``summary.pkl``
-file. The script selects the checkpoint with the highest success rate for each
+``latest.ckpt``). Every checkpoint directory must include a ``summary.pkl`` file.
+The script selects the checkpoint with the highest success rate for each
 horizon and produces a single-trace figure that mimics the reference style
 shared by the user.
 
@@ -55,6 +55,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("eval/sim_sim/baseline"),
         help=("Path to the experiment directory that contains T_a_<horizon> sub-folders."),
+    )
+    parser.add_argument(
+        "--experiment-name",
+        type=str,
+        default="Baseline",
+        help=("Name of the experiment that will be added to the plot title."),
     )
     parser.add_argument(
         "--output",
@@ -156,13 +162,37 @@ def collect_best_results(experiment_path: Path) -> List[HorizonResult]:
     return results
 
 
-def make_plot(results: Sequence[HorizonResult], dpi: int) -> plt.Figure:
+def wilson_interval(p_hat: float, n: int, z: float = 1.96) -> tuple[float, float]:
+    """
+    95% Wilson score interval (default z≈1.96). Clamps to [0,1].
+    """
+    denom = 1.0 + (z**2) / n
+    center = (p_hat + (z**2) / (2.0 * n)) / denom
+    half = (z * math.sqrt((p_hat * (1.0 - p_hat) + (z**2) / (4.0 * n)) / n)) / denom
+    lo = max(0.0, center - half)
+    hi = min(1.0, center + half)
+    return lo, hi
+
+
+def make_plot(results: Sequence[HorizonResult], dpi: int, experiment_name: str) -> plt.Figure:
     horizons = np.array([res.horizon for res in results], dtype=float)
     success_rates = np.array([res.success_rate for res in results], dtype=float)
+    num_trials = np.array([res.num_trials for res in results], dtype=int)
+
+    # Compute Wilson 95% CI per point
+    ci_bounds = np.array([wilson_interval(p, n) for p, n in zip(success_rates, num_trials)], dtype=float)
+    ci_lo = ci_bounds[:, 0]
+    ci_hi = ci_bounds[:, 1]
+    # yerr expects distances from the central value
+    yerr = np.vstack([
+        np.clip(success_rates - ci_lo, 0, 1),   # lower distances
+        np.clip(ci_hi - success_rates, 0, 1),   # upper distances
+    ])
 
     fig, ax = plt.subplots(figsize=(3.4, 3.2))
     ax.set_facecolor("white")
 
+    # Main line with markers
     ax.plot(
         horizons,
         success_rates,
@@ -172,6 +202,21 @@ def make_plot(results: Sequence[HorizonResult], dpi: int) -> plt.Figure:
         markersize=7,
         markeredgecolor="white",
         markeredgewidth=1.2,
+        zorder=3,
+    )
+
+    # Thin vertical error bars with horizontal caps (95% Wilson CI)
+    ax.errorbar(
+        horizons,
+        success_rates,
+        yerr=yerr,
+        fmt="none",
+        ecolor=NAVY,
+        elinewidth=1.0,
+        capsize=4.0,      # horizontal caps at top/bottom
+        capthick=1.0,
+        alpha=0.9,
+        zorder=2,
     )
 
     ax.set_xscale("log", base=2)
@@ -180,11 +225,11 @@ def make_plot(results: Sequence[HorizonResult], dpi: int) -> plt.Figure:
     ax.set_xticks(horizons)
     ax.set_xticklabels([str(int(val)) if float(val).is_integer() else f"{val:g}" for val in horizons])
 
-    y_min = 0.8
+    y_min = 0.6
     ax.set_ylim(y_min, 1.0)
     ax.set_yticks(np.linspace(y_min, 1.0, 6))
 
-    ax.set_title("Action Horizon", fontsize=14, fontweight="bold", pad=10)
+    ax.set_title(f"Action Horizon: {experiment_name} ", fontsize=12, fontweight="bold", pad=10)
     ax.set_xlabel("Action Horizon (steps)", fontsize=12)
     ax.set_ylabel("Success Rate", fontsize=12)
 
@@ -195,7 +240,7 @@ def make_plot(results: Sequence[HorizonResult], dpi: int) -> plt.Figure:
         spine.set_linewidth(1.0)
         spine.set_color("#4f4f4f")
 
-    ax.tick_params(axis="both", which="major", labelsize=10, length=6, width=1)
+    ax.tick_params(axis="both", which="major", labelsize=8, length=6, width=1)
     ax.tick_params(axis="x", which="minor", length=4, width=0.8)
     ax.tick_params(axis="y", which="minor", left=False)
 
@@ -217,7 +262,7 @@ def main() -> None:
             f" ({res.num_trials} trials) -> {res.checkpoint_dir}"
         )
 
-    fig = make_plot(results, dpi=args.dpi)
+    fig = make_plot(results, dpi=args.dpi, experiment_name=args.experiment_name)
 
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,5 @@
+checkpoint_path,run_dir,config_name,overrides
+/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/friction_0_1/T_a_6,gamepad_teleop_carbon.yaml,"diffusion_policy_config.cfg_overrides.n_action_steps=6 physical_properties.mu_dynamic=0.1 physical_properties.mu_static=0.1"
+/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/friction_0_1/T_a_7,gamepad_teleop_carbon.yaml,"diffusion_policy_config.cfg_overrides.n_action_steps=7 physical_properties.mu_dynamic=0.1 physical_properties.mu_static=0.1"
+/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/friction_0_1/T_a_8,gamepad_teleop_carbon.yaml,"diffusion_policy_config.cfg_overrides.n_action_steps=8 physical_properties.mu_dynamic=0.1 physical_properties.mu_static=0.1"
+/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs,eval/sim_sim/friction_0_1/T_a_9,gamepad_teleop_carbon.yaml,"diffusion_policy_config.cfg_overrides.n_action_steps=9 physical_properties.mu_dynamic=0.1 physical_properties.mu_static=0.1"
