@@ -1,9 +1,8 @@
 demo:
     directives:
+    # Directly import table and cylinder controller plant from the plant_hydroelastic directive
     - add_directives:
-        file: package://planning_through_contact/cylinder_controller_plant.yaml
-    - add_directives:
-        file: package://planning_through_contact/small_table.yaml
+        file: package://planning_through_contact/planar_pushing_cylinder_plant_hydroelastic.yaml
     plant_config:
         time_step: 0.001
         contact_model: "hydroelastic"

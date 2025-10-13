@@ -1,100 +1,264 @@
 """
-Automatically generated version of the TPusher2d class.
+Geometry representation for arbitrary 2D shapes composed of axis-aligned boxes.
 """
 
 import logging
+import pickle
 from dataclasses import dataclass
 from functools import cached_property
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-import matplotlib.patches as patches
 import numpy as np
 import numpy.typing as npt
 from pydrake.geometry import Shape as DrakeShape
 from pydrake.math import RigidTransform
+from scipy.spatial.transform import Rotation as R
 
 from planning_through_contact.geometry.collision_geometry.box_2d import Box2d
 from planning_through_contact.geometry.collision_geometry.collision_geometry import (
     CollisionGeometry,
-    ContactLocation,
-    PolytopeContactLocation,
 )
-from planning_through_contact.geometry.geometry_utils import normalize_vec
 from planning_through_contact.geometry.hyperplane import (
     Hyperplane,
     construct_2d_plane_from_points,
 )
-from planning_through_contact.tools.utils import load_primitive_info
+from planning_through_contact.geometry.physical_properties import PhysicalProperties
+from planning_through_contact.utils import write_atomic
+
+## SDF Construction Utils
 
 
-def plot_boxes(ax, loaded_boxes):
-    # Create a rectangle for each box
-    for box in loaded_boxes:
-        # Extract size and transform
-        size = box["size"]
-        transform = box["transform"]
-
-        # The bottom-left corner of the rectangle
-        # transform[0, 3] and transform[1, 3] are the x and y offsets respectively
-        bottom_left_x = transform[0, 3] - size[0] / 2
-        bottom_left_y = transform[1, 3] - size[1] / 2
-
-        # Create the rectangle
-        rect = patches.Rectangle(
-            (bottom_left_x, bottom_left_y),
-            size[0],
-            size[1],
-            linewidth=1,
-            edgecolor="r",
-            facecolor="none",
-        )
-
-        # Add the rectangle to the plot
-        ax.add_patch(rect)
+def load_primitive_info(primitive_info_file: str) -> List[Dict[str, Any]]:
+    with open(primitive_info_file, "rb") as f:
+        primitive_info = pickle.load(f)
+    return primitive_info
 
 
-def plot_vertices(ax, vertices):
-    # Unzip the list of vertices into separate x and y coordinate lists
-    x_coords, y_coords = zip(*vertices)
+def construct_drake_proximity_properties_sdf_str(physical_properties: PhysicalProperties, is_hydroelastic: bool) -> str:
+    """
+    Constructs a Drake proximity properties SDF string using the proximity properties
+    contained in `physical_properties`. Only adds the Hydroelastic properties if
+    `is_hydroelastic` is true.
+    """
+    proximity_properties_str = """
+            <drake:proximity_properties>
+        """
+    if is_hydroelastic:
+        if physical_properties.is_compliant:
+            assert (
+                physical_properties.hydroelastic_modulus is not None
+            ), "Require a Hydroelastic modulus for compliant Hydroelastic objects!"
+            proximity_properties_str += f"""
+                        <drake:compliant_hydroelastic/>
+                        <drake:hydroelastic_modulus>
+                            {physical_properties.hydroelastic_modulus}
+                        </drake:hydroelastic_modulus>
+                """
+        else:
+            proximity_properties_str += """
+                    <drake:rigid_hydroelastic/>
+            """
+        if physical_properties.mesh_resolution_hint is not None:
+            proximity_properties_str += f"""
+                    <drake:mesh_resolution_hint>
+                        {physical_properties.mesh_resolution_hint}
+                    </drake:mesh_resolution_hint>
+            """
+    if physical_properties.hunt_crossley_dissipation is not None:
+        proximity_properties_str += f"""
+                    <drake:hunt_crossley_dissipation>
+                        {physical_properties.hunt_crossley_dissipation}
+                    </drake:hunt_crossley_dissipation>
+            """
+    if physical_properties.mu_dynamic is not None:
+        proximity_properties_str += f"""
+                    <drake:mu_dynamic>
+                        {physical_properties.mu_dynamic}
+                    </drake:mu_dynamic>
+            """
+    if physical_properties.mu_static is not None:
+        proximity_properties_str += f"""
+                    <drake:mu_static>
+                        {physical_properties.mu_static}
+                    </drake:mu_static>
+            """
+    proximity_properties_str += """
+            </drake:proximity_properties>
+        """
+    return proximity_properties_str
 
-    # Plot the vertices
-    ax.plot(x_coords, y_coords, "o", markersize=5, linewidth=1)  # 'o-' creates a line with circle markers
 
-    # Add labels (optional)
-    for i, (x, y) in enumerate(vertices):
-        ax.text(x, y, f" {i}", verticalalignment="bottom", horizontalalignment="right")
+def get_primitive_geometry_str(primitive_geometry: Dict[str, Any]) -> str:
+    if primitive_geometry["name"] == "ellipsoid":
+        radii = primitive_geometry["radii"]
+        geometry = f"""
+            <ellipsoid>
+                <radii>{radii[0]} {radii[1]} {radii[2]}</radii>
+            </ellipsoid>
+        """
+    elif primitive_geometry["name"] == "sphere":
+        radius = primitive_geometry["radius"]
+        geometry = f"""
+            <sphere>
+                <radius>{radius}</radius>
+            </sphere>
+        """
+    elif primitive_geometry["name"] == "box":
+        size = primitive_geometry["size"]
+        geometry = f"""
+            <box>
+                <size>{size[0]} {size[1]} {size[2]}</size>
+            </box>
+        """
+    elif primitive_geometry["name"] == "cylinder":
+        height = primitive_geometry["height"]
+        radius = primitive_geometry["radius"]
+        geometry = f"""
+            <cylinder>
+                <radius>{radius}</radius>
+                <length>{height}</length>
+            </cylinder>
+        """
+    else:
+        raise RuntimeError(f"Unsupported primitive type: {primitive_geometry['name']}")
+
+    return geometry
 
 
-def plot_lines(ax, lines, color="green"):
-    # Lines have format ((x1, y1), (x2, y2)).
-    # Plot each edge and label it
-    for index, edge in enumerate(lines):
-        (start_x, start_y), (end_x, end_y) = edge
-        # Plot the edge as a line
-        ax.plot(
-            [start_x, end_x],
-            [start_y, end_y],
-            marker="o",
-            label=f"Edge {index}",
-            color=color,
-        )
+def create_processed_mesh_primitive_sdf_file(
+    primitive_info: List[Dict[str, Any]],
+    physical_properties: PhysicalProperties,
+    global_translation: np.ndarray,
+    output_file_path: str,
+    model_name: str,
+    base_link_name: str,
+    is_hydroelastic: bool,
+    visual_mesh_file_path: Optional[str] = None,
+    com_override: Optional[np.ndarray] = None,
+    rgba: Optional[List[float]] = None,
+) -> None:
+    """
+    Creates and saves a processed mesh consisting of primitive geometries.
 
-        # Calculate midpoint for the label placement
-        mid_x = (start_x + end_x) / 2
-        mid_y = (start_y + end_y) / 2
-        ax.text(mid_x, mid_y, f"{index}", color=color, fontsize=12, ha="center", va="center")
+    :param primitive_info: A list of dicts containing primitive params. Each dict must
+        contain "name" which can for example be sphere, ellipsoid, box, etc. and
+        "transform" which is a homogenous transformation matrix. The other params are
+        primitive dependent but must be sufficient to construct that primitive.
+    :param physical_properties: The physical properties.
+    :param global_translation: The translation of the processed mesh.
+    :param output_file_path: The path to save the processed mesh SDF file.
+    :param is_hydroelastic: Whether to make the body rigid hydroelastic.
+    :param visual_mesh_file_path: The path to the mesh to use for the visual geometry.
+    :param rgba: The color of the visual geometry. Only used if visual_mesh_file_path is
+        None.
+    :param com_override: The center of mass to use. If None, the center of mass from
+        physical_properties is used.
+    """
+    com = com_override if com_override is not None else physical_properties.center_of_mass
+    if physical_properties.center_of_mass is None:
+        logging.warning("Center of mass not provided. Using [0, 0, 0] as default.")
+    procesed_mesh_sdf_str = f"""
+        <?xml version="1.0"?>
+        <sdf version="1.7">
+            <model name="{model_name}">
+                <link name="{base_link_name}">
+                    <inertial>
+                        <inertia>
+                            <ixx>{physical_properties.inertia[0, 0]}</ixx>
+                            <ixy>{physical_properties.inertia[0, 1]}</ixy>
+                            <ixz>{physical_properties.inertia[0, 2]}</ixz>
+                            <iyy>{physical_properties.inertia[1, 1]}</iyy>
+                            <iyz>{physical_properties.inertia[1, 2]}</iyz>
+                            <izz>{physical_properties.inertia[2, 2]}</izz>
+                        </inertia>
+                        <mass>{physical_properties.mass}</mass>
+                        <pose>{com[0]} {com[1]} {com[2]} 0 0 0</pose>
+                    </inertial>
+        """
+
+    if visual_mesh_file_path is not None:
+        procesed_mesh_sdf_str += f"""
+                    <visual name="visual">
+                        <pose>0 0 0 0 0 0</pose>
+                        <geometry>
+                            <mesh>
+                                <uri>{visual_mesh_file_path}</uri>
+                            </mesh>
+                        </geometry>
+                    </visual>
+            """
+    else:
+        # Use primitives for the visual geometry.
+        for i, info in enumerate(primitive_info):
+            transform = info["transform"]
+            translation = transform[:3, 3] + global_translation
+            rotation = R.from_matrix(transform[:3, :3]).as_euler("XYZ")
+            geometry = get_primitive_geometry_str(info)
+
+            procesed_mesh_sdf_str += f"""
+                <visual name="visual_{i}">
+                    <pose>
+                        {translation[0]} {translation[1]} {translation[2]} {rotation[0]} {rotation[1]} {rotation[2]}
+                    </pose>
+                    <geometry>
+                        {geometry}
+                    </geometry>
+            """
+            if rgba is not None:
+                procesed_mesh_sdf_str += f"""
+                    <material>
+                        <diffuse> {rgba[0]} {rgba[1]} {rgba[2]} {rgba[3]} </diffuse>
+                    </material>
+                """
+            procesed_mesh_sdf_str += """
+                </visual>
+            """
+
+    # Add the primitives
+    for i, info in enumerate(primitive_info):
+        transform = info["transform"]
+        translation = transform[:3, 3] + global_translation
+        rotation = R.from_matrix(transform[:3, :3]).as_euler("XYZ")
+        geometry = get_primitive_geometry_str(info)
+
+        procesed_mesh_sdf_str += f"""
+            <collision name="collision_{i}">
+                <pose>
+                    {translation[0]} {translation[1]} {translation[2]} {rotation[0]} {rotation[1]} {rotation[2]}
+                </pose>
+                <geometry>
+                    {geometry}
+                </geometry>
+            """
+
+        assert (
+            not is_hydroelastic or physical_properties.mesh_resolution_hint is not None
+        ), "Require a mesh resolution hint for Hydroelastic primitive collision geometries!"
+        procesed_mesh_sdf_str += construct_drake_proximity_properties_sdf_str(physical_properties, is_hydroelastic)
+
+        procesed_mesh_sdf_str += """
+                </collision>
+            """
+
+    procesed_mesh_sdf_str += """
+                    </link>
+                </model>
+            </sdf>
+        """
+    write_atomic(output_file_path, procesed_mesh_sdf_str, "w")
+
+
+## Geometry Utils
 
 
 def compute_box_vertices(box):
-    # Extract size and transformation matrix
+    """Compute the 2D vertices of a box given its size and transform."""
     size = box["size"]
     transform = box["transform"]
 
-    # Calculate the half-size for convenience
     half_size_x = size[0] / 2
     half_size_y = size[1] / 2
 
-    # Define the relative corner points (vertices) of the box
     relative_vertices = np.array(
         [
             [-half_size_x, -half_size_y, 0, 1],  # Bottom-left
@@ -104,13 +268,56 @@ def compute_box_vertices(box):
         ]
     )
 
-    # Apply the transformation matrix to each vertex
     vertices = [transform @ vertex for vertex in relative_vertices]
-
-    # Extract only the x and y components to return 2D vertices
     vertices_2d = [(vertex[0], vertex[1]) for vertex in vertices]
 
     return vertices_2d
+
+
+def compute_box_bounds(box):
+    """Compute the bounding box (left, right, bottom, top) for a box."""
+    size = box["size"]
+    transform = box["transform"]
+
+    center_x = transform[0, 3]
+    center_y = transform[1, 3]
+
+    left = center_x - size[0] / 2
+    right = center_x + size[0] / 2
+    bottom = center_y - size[1] / 2
+    top = center_y + size[1] / 2
+
+    return left, right, bottom, top
+
+
+def is_inside_box(box, point):
+    """Check if a 2D point is strictly inside the box (not on boundary)."""
+    size = box["size"]
+    transform = box["transform"]
+
+    center_x = transform[0, 3]
+    center_y = transform[1, 3]
+
+    half_size_x = size[0] / 2
+    half_size_y = size[1] / 2
+
+    left_edge = center_x - half_size_x
+    right_edge = center_x + half_size_x
+    bottom_edge = center_y - half_size_y
+    top_edge = center_y + half_size_y
+
+    x, y = point
+    is_inside = left_edge < x < right_edge and bottom_edge < y < top_edge
+
+    return is_inside
+
+
+def is_inside_any_box(boxes, point):
+    """Check if a point is inside any of the boxes."""
+    for box in boxes:
+        if is_inside_box(box, point):
+            return True
+    return False
 
 
 def is_point_on_box_edge(point, box):
@@ -121,29 +328,24 @@ def is_point_on_box_edge(point, box):
 
 
 def compute_intersection_points(boxes):
+    """Compute intersection points where box edges meet."""
     intersections = []
 
-    # Assuming that boxes are axis-aligned and do not rotate
     for i, box1 in enumerate(boxes):
-        # Compute the edges for box1
         left1, right1, bottom1, top1 = compute_box_bounds(box1)
 
         for j, box2 in enumerate(boxes):
-            if i == j:  # Skip comparing the box with itself
+            if i == j:
                 continue
 
-            # Compute the edges for box2
             left2, right2, bottom2, top2 = compute_box_bounds(box2)
 
-            # Check for horizontal overlap
+            # Check for horizontal and vertical overlap
             if left1 < right2 and right1 > left2:
-                # Check for vertical overlap
                 if bottom1 < top2 and top1 > bottom2:
-                    # Calculate the intersection points
                     horizontal_overlap = [max(left1, left2), min(right1, right2)]
                     vertical_overlap = [max(bottom1, bottom2), min(top1, top2)]
 
-                    # There are only 2 actual intersection points where the edges overlap
                     candidates = [
                         (horizontal_overlap[0], vertical_overlap[0]),
                         (horizontal_overlap[0], vertical_overlap[1]),
@@ -154,88 +356,16 @@ def compute_intersection_points(boxes):
                         if not is_inside_box(box1, candidate) and not is_inside_box(box2, candidate):
                             intersections.append(candidate)
 
-    # The intersection points calculated above include the corners of the overlapping area,
-    # we need to filter out the points that are not actually intersection of the edges
     actual_intersections = []
     for point in intersections:
         if any(is_point_on_box_edge(point, box) for box in boxes):
             actual_intersections.append(point)
 
-    return list(set(actual_intersections))  # Remove duplicates and return
-
-
-def is_inside_box(box, point):
-    """Check if a 2D point is inside the 2D rectangle on the XY plane defined by `box`.
-    This returns False if the point is on the boundary of the box."""
-    # Extract size and transformation matrix
-    size = box["size"]
-    transform = box["transform"]
-
-    # Center of the box
-    center_x = transform[0, 3]
-    center_y = transform[1, 3]
-
-    # Half-sizes of the box
-    half_size_x = size[0] / 2
-    half_size_y = size[1] / 2
-
-    # Calculate the edges of the box
-    left_edge = center_x - half_size_x
-    right_edge = center_x + half_size_x
-    bottom_edge = center_y - half_size_y
-    top_edge = center_y + half_size_y
-
-    # Point coordinates
-    x, y = point
-
-    # Check if the point is inside the box boundaries
-    is_inside = left_edge < x < right_edge and bottom_edge < y < top_edge
-
-    return is_inside
-
-
-def is_inside_any_box(boxes, point):
-    # Check if the vertex is inside any of the boxes
-    for box in boxes:
-        if is_inside_box(box, point):
-            return True
-    return False
-
-
-def compute_box_bounds(box):
-    # Extract size and transformation matrix
-    size = box["size"]
-    transform = box["transform"]
-
-    # Get the center position
-    center_x = transform[0, 3]
-    center_y = transform[1, 3]
-
-    # Calculate the edges
-    left = center_x - size[0] / 2
-    right = center_x + size[0] / 2
-    bottom = center_y - size[1] / 2
-    top = center_y + size[1] / 2
-
-    return left, right, bottom, top
-
-
-def compute_box_union_bounds(boxes):
-    min_x, min_y = float("inf"), float("inf")
-    max_x, max_y = float("-inf"), float("-inf")
-
-    for box in boxes:
-        left, right, bottom, top = compute_box_bounds(box)
-        min_x = min(min_x, left)
-        max_x = max(max_x, right)
-        min_y = min(min_y, bottom)
-        max_y = max(max_y, top)
-
-    return min_x, max_x, min_y, max_y
+    return list(set(actual_intersections))
 
 
 def compute_outer_vertices(boxes):
-    # Compute all vertices and check if they are inside any other box
+    """Compute all vertices on the outer boundary of the union of boxes."""
     box_vertices = [compute_box_vertices(box) for box in boxes]
     flattened_vertices = [vertex for vertices in box_vertices for vertex in vertices]
     intersection_points = compute_intersection_points(boxes)
@@ -262,32 +392,20 @@ def filter_axis_aligned_edges(edges):
 
     for edge in edges:
         (start_x, start_y), (end_x, end_y) = edge
-        # Check if the edge is horizontal (same y) or vertical (same x)
         if start_x == end_x or start_y == end_y:
             axis_aligned_edges.append(edge)
 
     return axis_aligned_edges
 
 
-def filter_edges_with_midpoint_collision(edges, boxes):
-    """Filter out all edges whose midpoint is inside another box."""
-    filtered_edges = []
-    for edge in edges:
-        midpoint = (edge[0] + edge[1]) / 2
-        if not is_inside_any_box(boxes, midpoint):
-            filtered_edges.append(edge)
-    return filtered_edges
-
-
 def line_intersects_box(line, box, num_samples=10):
+    """Check if a line segment intersects the interior of a box."""
     p1, p2 = line
 
-    # Sample points along the line. Don't include the endpoints.
     x_values = np.linspace(p1[0], p2[0], num_samples + 2)[1:-1]
     y_values = np.linspace(p1[1], p2[1], num_samples + 2)[1:-1]
     points = np.column_stack((x_values, y_values))
 
-    # Check if any of the points is inside the box
     for point in points:
         if is_inside_box(box, point):
             return True
@@ -295,7 +413,7 @@ def line_intersects_box(line, box, num_samples=10):
 
 
 def filter_edges_with_collision(edges, boxes):
-    """Filter out all edges whose non-endpoints part is inside another box."""
+    """Filter out all edges whose non-endpoint parts are inside a box."""
     filtered_edges = []
     for edge in edges:
         intersects = False
@@ -309,6 +427,7 @@ def filter_edges_with_collision(edges, boxes):
 
 
 def compute_outer_edges(vertices, boxes):
+    """Compute edges on the outer boundary."""
     edges = connect_all_points(vertices)
     axis_aligned_edges = filter_axis_aligned_edges(edges)
     outer_edges = filter_edges_with_collision(axis_aligned_edges, boxes)
@@ -316,41 +435,33 @@ def compute_outer_edges(vertices, boxes):
 
 
 def find_next_edge(edges, current_edge):
-    """
-    Find the next edge that connects to the current edge.
-    """
-    last_vertex = current_edge[1]  # The end vertex of the current edge
+    """Find the next edge that connects to the current edge."""
+    last_vertex = current_edge[1]
     for edge in edges:
         if np.array_equal(edge[0], last_vertex):
             return edge
         if np.array_equal(edge[1], last_vertex):
-            return (edge[1], edge[0])  # Reverse the edge if needed
+            return (edge[1], edge[0])
     return None
 
 
 def direct_edges_so_right_points_inside(edges, boxes):
-    """
-    Flip edges so that the right side next to the edge is inside a box.
-    """
+    """Flip edges so that the right side next to the edge is inside a box."""
     width, height = compute_union_dimensions(boxes)
     scale = min(width, height) / 1000
 
     directed_edges = []
     for edge in edges:
-        # Compute the midpoint of the edge.
         midpoint = (edge[0] + edge[1]) / 2
 
-        # Compute point to the right of the edge.
         start, end = edge
         diff0 = end[0] - start[0]
         diff1 = end[1] - start[1]
         normal = np.array([diff1, -diff0])
         normal /= np.linalg.norm(normal)
-        normal *= scale * 100  # Scale for visualization
-        scaled_normal = normal * scale  # Scale for collision checking
+        scaled_normal = normal * scale
         right_point = (midpoint[0] + scaled_normal[0], midpoint[1] + scaled_normal[1])
 
-        # Check if the right point is inside a box.
         if is_inside_any_box(boxes, right_point):
             directed_edges.append(edge)
         else:
@@ -360,233 +471,88 @@ def direct_edges_so_right_points_inside(edges, boxes):
 
 
 def order_edges_by_connectivity(edges, boxes):
-    """
-    Order edges by greedy connectivity starting from an arbitrary edge.
-    Ensures that the first vertex of the first edge is not an intersection vertex.
-    """
+    """Order edges by greedy connectivity starting from an arbitrary edge."""
     if not edges:
         return []
 
-    # Convert edges to tuple format if they are numpy arrays
     edges = [(tuple(edge[0]), tuple(edge[1])) if isinstance(edge[0], np.ndarray) else edge for edge in edges]
 
-    # Start with edge that has highest y-coordinate of the first vertex.
     edges.sort(key=lambda edge: edge[0][1], reverse=True)
 
     intersection_vertices = compute_intersection_points(boxes)
     if edges[0][0] in intersection_vertices:
-        # Use the 2nd edge as the starting edge.
         edges = edges[1:] + [edges[0]]
 
-    ordered_edges = [edges[0]]  # Start with the first edge
+    ordered_edges = [edges[0]]
     remaining_edges = list(edges[1:])
 
     while remaining_edges:
         next_edge = find_next_edge(remaining_edges, ordered_edges[-1])
         if next_edge:
             ordered_edges.append(next_edge)
-            # Remove the edge from remaining_edges, considering potential tuple format
             remaining_edges.remove(
                 next_edge if next_edge in remaining_edges else (tuple(next_edge[1]), tuple(next_edge[0]))
             )
         else:
-            break  # No more connectable edges, stop here
+            break
 
     return ordered_edges
 
 
 def extract_ordered_vertices(ordered_edges):
-    """
-    Extract the ordered vertices from the list of ordered edges.
-    """
+    """Extract the ordered vertices from the list of ordered edges."""
     ordered_vertices = [ordered_edges[0][0]]
     for edge in ordered_edges:
         ordered_vertices.append(edge[1])
-    # The last vertex of the last edge is the same as the first vertex of the first
-    # edge, so remove the last vertex to avoid duplication.
     ordered_vertices.pop()
     return ordered_vertices
 
 
 def compute_union_dimensions(boxes):
+    """Compute width and height of the union of all boxes."""
     min_x, min_y = float("inf"), float("inf")
     max_x, max_y = float("-inf"), float("-inf")
 
     for box in boxes:
-        # Extract the position from the transformation matrix
         x_center, y_center, _ = box["transform"][:3, 3]
-
-        # Half-sizes for x and y dimensions
         half_size_x, half_size_y = box["size"][0] / 2, box["size"][1] / 2
 
-        # Calculate min and max coordinates for this box
         box_min_x = x_center - half_size_x
         box_max_x = x_center + half_size_x
         box_min_y = y_center - half_size_y
         box_max_y = y_center + half_size_y
 
-        # Update the overall min and max
         min_x = min(min_x, box_min_x)
         max_x = max(max_x, box_max_x)
         min_y = min(min_y, box_min_y)
         max_y = max(max_y, box_max_y)
 
-    # Compute the width and height of the union of the boxes
     width = max_x - min_x
     height = max_y - min_y
 
     return width, height
 
 
-def compute_union_bounds_world(boxes):
-    min_x, min_y = float("inf"), float("inf")
-    max_x, max_y = float("-inf"), float("-inf")
-
-    for box in boxes:
-        # Extract the position from the transformation matrix
-        x_center, y_center, _ = box["transform"][:3, 3]
-
-        # Half-sizes for x and y dimensions
-        half_size_x, half_size_y = box["size"][0] / 2, box["size"][1] / 2
-
-        # Calculate min and max coordinates for this box
-        box_min_x = x_center - half_size_x
-        box_max_x = x_center + half_size_x
-        box_min_y = y_center - half_size_y
-        box_max_y = y_center + half_size_y
-
-        # Update the overall min and max
-        min_x = min(min_x, box_min_x)
-        max_x = max(max_x, box_max_x)
-        min_y = min(min_y, box_min_y)
-        max_y = max(max_y, box_max_y)
-
-    return min_x, max_x, min_y, max_y
-
-
-def compute_collision_free_regions(boxes, faces):
-    # This assumes that the first vertex of the first face is not an intersection vertex
-    # Keeps the ordering of the faces.
-
-    width, height = compute_union_dimensions(boxes)
-    scale = min(width, height) / 1000
-
-    intersection_vertices = compute_intersection_points(boxes)
-
-    assert faces[0][0] not in intersection_vertices
-
-    UL = np.array([-1, 1]) * scale
-    UR = np.array([1, 1]) * scale
-    DR = np.array([1, -1]) * scale
-    DL = np.array([-1, -1]) * scale
-
-    def get_offset(vertex):
-        if is_inside_any_box(boxes, vertex + UL) and not is_inside_any_box(boxes, vertex + DR):
-            return DR * 100
-        if is_inside_any_box(boxes, vertex + UR) and not is_inside_any_box(boxes, vertex + DL):
-            return DL * 100
-        if is_inside_any_box(boxes, vertex + DR) and not is_inside_any_box(boxes, vertex + UL):
-            return UL * 100
-        if is_inside_any_box(boxes, vertex + DL) and not is_inside_any_box(boxes, vertex + UR):
-            return UR * 100
-        raise ValueError("No offset found")
-
-    planes_per_region = []
-    faces_per_region = []
-    current_idx = 0
-    while current_idx < len(faces):
-        region_faces = []
-        face = faces[current_idx]
-        region_faces.append(face)
-        incoming_plane = (face[0] + get_offset(face[0]), face[0])
-        while face[1] in intersection_vertices:
-            face = faces[current_idx + 1]
-            region_faces.append(face)
-            current_idx += 1
-        outgoing_plane = (face[1], face[1] + get_offset(face[1]))
-        planes_per_region.append([incoming_plane, outgoing_plane])
-        faces_per_region.append(region_faces)
-        current_idx += 1
-
-    return planes_per_region, faces_per_region
-
-
-def flatten_nested_list(nested_list):
-    return [item for sublist in nested_list for item in sublist]
-
-
-def compute_normal_vecs_from_edges(edges, boxes):
-    """
-    Compute normal vectors for edges that start at the edge midpoint and point inside
-    the box.
-    """
-    width, height = compute_union_dimensions(boxes)
-    scale = min(width, height) / 1000
-
-    normal_vecs = []
-    for edge in edges:
-        start, end = edge
-        diff0 = end[0] - start[0]
-        diff1 = end[1] - start[1]
-        normal = np.array([diff1, -diff0])
-        normal /= np.linalg.norm(normal)
-        normal *= scale * 100  # Scale for visualization
-        scaled_normal = normal * scale  # Scale for collision checking
-
-        mid_point = (start[0] + end[0]) / 2, (start[1] + end[1]) / 2
-
-        # Make sure that normal vector points inside the box
-        if is_inside_any_box(boxes, (mid_point[0] + scaled_normal[0], mid_point[1] + scaled_normal[1])):
-            normal_vec = (
-                (mid_point[0], mid_point[1]),
-                (mid_point[0] + normal[0], mid_point[1] + normal[1]),
-            )
-        else:
-            normal_vec = (
-                (mid_point[0], mid_point[1]),
-                (mid_point[0] - normal[0], mid_point[1] - normal[1]),
-            )
-        normal_vecs.append(normal_vec)
-    return normal_vecs
-
-
-def compute_normalized_normal_vector_points_from_edges(edges, boxes):
-    """
-    Computes a point that defines the normal vector with respect to the world origin.
-    The normal vectors point inside the shape.
-    """
-    normal_vecs = compute_normal_vecs_from_edges(edges, boxes)
-    normal_vec_points = [np.array([np.array(vec[1]) - np.array(vec[0])]).reshape((-1, 1)) for vec in normal_vecs]
-    normalized_normal_vec_points = [vec / np.linalg.norm(vec) for vec in normal_vec_points]
-    return normalized_normal_vec_points
-
-
 def compute_com_from_uniform_density(boxes):
-    # Initialize variables to accumulate weighted centroids and total area
+    """Compute center of mass assuming uniform density."""
     sum_weighted_x = 0
     sum_weighted_y = 0
     total_area = 0
 
-    # Iterate through each box
     for box in boxes:
-        # Extract size and transformation
         size = box["size"]
         transform = box["transform"]
 
-        # Calculate area (ignoring z-dimension)
         width, height = size[0], size[1]
         area = width * height
 
-        # Calculate the centroid of the box
         x_centroid = transform[0, 3]
         y_centroid = transform[1, 3]
 
-        # Accumulate weighted centroids and total area
         sum_weighted_x += x_centroid * area
         sum_weighted_y += y_centroid * area
         total_area += area
 
-    # Calculate the center of mass
     center_of_mass_x = sum_weighted_x / total_area
     center_of_mass_y = sum_weighted_y / total_area
 
@@ -594,6 +560,7 @@ def compute_com_from_uniform_density(boxes):
 
 
 def offset_boxes(boxes, offset):
+    """Offset all boxes by the given [x, y] offset."""
     for box in boxes:
         box["transform"][0, 3] += offset[0]
         box["transform"][1, 3] += offset[1]
@@ -602,15 +569,27 @@ def offset_boxes(boxes, offset):
 
 @dataclass
 class ArbitraryShape2D(CollisionGeometry):
+    """
+    A 2D collision geometry represented as the union of axis-aligned boxes.
+
+    Used for simulation where the actual geometry is defined in an SDF file.
+    This class provides geometric properties (vertices, faces, dimensions) needed
+    for workspace sampling and visualization.
+    """
+
     def __init__(self, arbitrary_shape_pickle_path: str, com: Optional[np.ndarray] = None):
-        """NOTE: com computed using uniform density if None."""
+        """
+        Args:
+            arbitrary_shape_pickle_path: Path to pickle file containing box primitives
+            com: Center of mass [x, y]. If None, computed from uniform density.
+        """
         assert arbitrary_shape_pickle_path is not None and arbitrary_shape_pickle_path != ""
         self.arbitrary_shape_pickle_path = arbitrary_shape_pickle_path
         self.com = com
 
-    # TODO: This needs to match the sdf file for simulation to work...
     @property
     def collision_geometry_names(self) -> List[str]:
+        """Drake collision geometry names that must match the SDF file."""
         return [
             "arbitrary_shape::arbitrary_shape_bottom_collision",
             "arbitrary_shape::arbitrary_shape_top_collision",
@@ -622,12 +601,12 @@ class ArbitraryShape2D(CollisionGeometry):
 
     @cached_property
     def com_offset(self) -> npt.NDArray[np.float64]:
+        """Center of mass offset used to recenter the shape."""
         boxes = load_primitive_info(self.arbitrary_shape_pickle_path)
         primitive_types = [box["name"] for box in boxes]
         assert np.all([t == "box" for t in primitive_types]), f"Only boxes are supported. Got: {primitive_types}"
         if self.com is not None:
             return np.array([self.com[0], self.com[1]]).reshape((2, 1))
-        # Compute the center of mass from uniform density
         logging.warning("COM not provided. Computing from uniform density.")
         x_com, y_com = compute_com_from_uniform_density(boxes)
         return np.array([x_com, y_com]).reshape((2, 1))
@@ -635,15 +614,13 @@ class ArbitraryShape2D(CollisionGeometry):
     @cached_property
     def primitive_boxes(self) -> dict:
         """
-        The primitive boxes whose union represents the shape. The resulting shape is
-        assumed to be planar on the xy-plane.
-        NOTE: All boxes require a small overlap.
+        The primitive boxes whose union represents the shape.
+        Boxes are recentered around the center of mass.
         """
         boxes = load_primitive_info(self.arbitrary_shape_pickle_path)
         primitive_types = [box["name"] for box in boxes]
         assert np.all([t == "box" for t in primitive_types]), f"Only boxes are supported. Got: {primitive_types}"
 
-        # TODO: Take as input
         print(f"COM offset: {self.com_offset.flatten()}")
         x_com, y_com = self.com_offset.flatten()
         boxes = offset_boxes(boxes, [-x_com, -y_com])
@@ -651,179 +628,56 @@ class ArbitraryShape2D(CollisionGeometry):
         return boxes
 
     @cached_property
-    def ordered_edges(
-        self,
-    ) -> List[Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]]:
+    def ordered_edges(self) -> List[Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]]:
+        """Ordered list of edges forming the outer boundary."""
         vertices = compute_outer_vertices(self.primitive_boxes)
         edges = compute_outer_edges(vertices, self.primitive_boxes)
         directed_edges = direct_edges_so_right_points_inside(edges, self.primitive_boxes)
         ordered_edges = order_edges_by_connectivity(directed_edges, self.primitive_boxes)
-
         return ordered_edges
 
     @cached_property
     def vertices(self) -> List[npt.NDArray[np.float64]]:
+        """Ordered vertices of the outer boundary polygon."""
         ordered_vertices = extract_ordered_vertices(self.ordered_edges)
         vertices_np = [np.array(v).reshape((2, 1)) for v in ordered_vertices]
         return vertices_np
 
-    @property
-    def num_vertices(self) -> int:
-        return len(self.vertices)
-
     @cached_property
     def faces(self) -> List[Hyperplane]:
+        """Hyperplanes representing each edge (face) of the boundary."""
         edges_np = [np.array(edge) for edge in self.ordered_edges]
         hyperplanes = [construct_2d_plane_from_points(*edge) for edge in edges_np]
         return hyperplanes
 
     @cached_property
     def width(self) -> float:
+        """Width of the bounding box."""
         width, _ = compute_union_dimensions(self.primitive_boxes)
         return width
 
     @cached_property
     def height(self) -> float:
+        """Height of the bounding box."""
         _, height = compute_union_dimensions(self.primitive_boxes)
         return height
 
-    @cached_property
-    def contact_locations(self) -> List[PolytopeContactLocation]:
-        locs = [PolytopeContactLocation(pos=ContactLocation.FACE, idx=idx) for idx in range(len(self.faces))]
-        return locs
-
-    @cached_property
-    def num_collision_free_regions(self) -> int:
-        planes_per_region, _ = compute_collision_free_regions(self.primitive_boxes, self.ordered_edges)
-        return len(planes_per_region)
-
-    @cached_property
-    def planes_and_faces_per_region(
-        self,
-    ) -> Tuple[
-        List[List[Tuple[np.ndarray, np.ndarray]]],
-        List[List[Tuple[np.ndarray, np.ndarray]]],
-    ]:
-        planes_per_region, faces_per_region = compute_collision_free_regions(self.primitive_boxes, self.ordered_edges)
-        planes_per_region_np = [[np.array(p) for p in planes] for planes in planes_per_region]
-        faces_per_region_np = [[np.array(f) for f in faces] for faces in faces_per_region]
-        return planes_per_region_np, faces_per_region_np
-
-    @cached_property
-    def face_to_region_mapping(self) -> List[int]:
-        _, faces_per_region = self.planes_and_faces_per_region
-        face_to_region_mapping = []
-        for region_idx, faces in enumerate(faces_per_region):
-            for _ in faces:
-                face_to_region_mapping.append(region_idx)
-        return face_to_region_mapping
-
-    def get_collision_free_region_for_loc_idx(self, loc_idx: int) -> int:
-        face_to_region_mapping = self.face_to_region_mapping
-        return face_to_region_mapping[loc_idx]
-
-    def get_contact_planes(self, idx: int) -> List[Hyperplane]:
-        """
-        Gets the contact faces for each collision-free set.
-        This function is hand designed for the object geometry.
-        """
-        _, faces_per_region = self.planes_and_faces_per_region
-        faces = faces_per_region[idx]
-        return [construct_2d_plane_from_points(*face) for face in faces]
-
-    def get_planes_for_collision_free_region(self, idx: int) -> List[Hyperplane]:
-        """
-        Gets the faces that defines the collision free sets (except for the contact face)
-        This function is hand designed for the object geometry.
-        """
-        planes_per_region, _ = self.planes_and_faces_per_region
-        planes = planes_per_region[idx]
-        return [construct_2d_plane_from_points(*plane) for plane in planes]
-
-    # TODO: All of the following code is copied straight from equilateralpolytope and should be unified!
-
     @property
     def vertices_for_plotting(self) -> npt.NDArray[np.float64]:
-        vertices = np.hstack([self.vertices[idx] for idx in range(self.num_vertices)])
+        """Vertices formatted for plotting (2 x N array)."""
+        vertices = np.hstack([self.vertices[idx] for idx in range(len(self.vertices))])
         return vertices
 
-    def get_proximate_vertices_from_location(self, location: PolytopeContactLocation) -> List[npt.NDArray[np.float64]]:
-        if location.pos == ContactLocation.FACE:
-            wrap_around = lambda num: num % self.num_vertices
-            return [
-                self.vertices[location.idx],
-                self.vertices[wrap_around(location.idx + 1)],
-            ]
-        elif location.pos == ContactLocation.VERTEX:
-            return [self.vertices[location.idx]]
-        else:
-            raise NotImplementedError(f"Location {location.pos}: {location.idx} not implemented")
-
-    def get_neighbouring_vertices(
-        self, location: PolytopeContactLocation
-    ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-        if location.pos == ContactLocation.VERTEX:
-            wrap_around = lambda num: num % self.num_vertices
-            idx_prev = wrap_around(location.idx - 1)
-            idx_next = wrap_around(location.idx + 1)
-
-            return self.vertices[idx_prev], self.vertices[idx_next]
-        else:
-            raise NotImplementedError(f"Location {location.pos}: {location.idx} not implemented")
-
-    def get_hyperplane_from_location(self, location: PolytopeContactLocation) -> Hyperplane:
-        if location.pos == ContactLocation.FACE:
-            return self.faces[location.idx]
-        else:
-            raise NotImplementedError(f"Cannot get hyperplane from location {location.pos}: {location.idx}")
-
-    @cached_property
-    def normal_vecs(self) -> List[npt.NDArray[np.float64]]:
-        normals = compute_normalized_normal_vector_points_from_edges(self.ordered_edges, self.primitive_boxes)
-        return normals
-
-    @staticmethod
-    def _get_tangent_vec(v: npt.NDArray[np.float64]):
-        """
-        Returns the 2d tangent vector calculated as the cross product with the z-axis
-        pointing out of the plane.
-        """
-        return np.array([-v[1], v[0]]).reshape((-1, 1))
-
-    @cached_property
-    def tangent_vecs(self) -> List[npt.NDArray[np.float64]]:
-        tangents = [self._get_tangent_vec(self.normal_vecs[idx]) for idx in range(self.num_vertices)]
-        return tangents
-
-    @cached_property
-    def corner_normal_vecs(self) -> List[npt.NDArray[np.float64]]:
-        wrap_around = lambda idx: idx % self.num_vertices
-        indices = [(wrap_around(idx - 1), idx) for idx in range(self.num_vertices)]
-        corner_normals = [normalize_vec(self.normal_vecs[i] + self.normal_vecs[j]) for i, j in indices]
-        return corner_normals
-
-    @cached_property
-    def corner_tangent_vecs(self) -> List[npt.NDArray[np.float64]]:
-        tangents = [self._get_tangent_vec(self.corner_normal_vecs[idx]) for idx in range(self.num_vertices)]
-        return tangents
-
-    def get_norm_and_tang_vecs_from_location(
-        self, location: PolytopeContactLocation
-    ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-        if location.pos == ContactLocation.FACE:
-            return self.normal_vecs[location.idx], self.tangent_vecs[location.idx]
-        elif location.pos == ContactLocation.VERTEX:
-            return (
-                self.corner_normal_vecs[location.idx],
-                self.corner_tangent_vecs[location.idx],
-            )
-        else:
-            raise ValueError(f"Cannot get normal and tangent vecs from location {location.pos}")
-
-    def get_face_length(self, location: PolytopeContactLocation) -> float:
-        raise NotImplementedError("Face length not yet implemented for the TPusher.")
-
     def get_as_boxes(self, z_value: float = 0.0) -> Tuple[List[Box2d], List[RigidTransform]]:
+        """
+        Get the primitive boxes and their transforms for Drake simulation.
+
+        Args:
+            z_value: Z-coordinate for the boxes (planar objects lie in XY plane)
+
+        Returns:
+            Tuple of (list of Box2d objects, list of RigidTransforms)
+        """
         boxes_2d = []
         transforms = []
         for box in self.primitive_boxes:
