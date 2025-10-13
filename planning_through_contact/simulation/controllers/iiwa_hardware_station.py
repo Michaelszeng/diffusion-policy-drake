@@ -1,5 +1,4 @@
 import numpy as np
-from lxml import etree
 from pydrake.all import (
     Context,
     Demultiplexer,
@@ -23,10 +22,9 @@ from planning_through_contact.simulation.planar_pushing_sim_config import Planar
 from planning_through_contact.simulation.sim_utils import (
     GetSliderUrl,
     LoadRobotOnly,
-    get_slider_sdf_path,
+    get_randomized_slider_sdf_string,
     models_folder,
     package_xml_file,
-    random_rgba_from_color_range,
     randomize_pusher,
     randomize_table,
 )
@@ -72,46 +70,38 @@ class IiwaHardwareStation(RobotSystemBase):
         else:
             scenario_name = "accuracy-optimized"
 
-        if sim_config.domain_randomization_color_range <= 0.0:  # No domain randomization
-            scenario_file_name = f"{models_folder}/planar_pushing_iiwa_scenario.yaml"
+        scenario_file_name = "planar_pushing_iiwa_scenario.yaml"
 
+        if sim_config.domain_randomization_color_range <= 0.0:
+            # Define callback for MakeHardwareStation
             def add_slider_to_parser(parser):
-                """Simple parser pre-finalize callback to add slider to parser."""
+                """Just add slider model by SDF url"""
                 slider_sdf_url = GetSliderUrl(sim_config)
                 (slider,) = parser.AddModels(url=slider_sdf_url)
-                return
-        else:  # Domain randomization
-            scenario_file_name = f"{models_folder}/planar_pushing_iiwa_scenario_randomized.yaml"
-
-            table_grey = np.random.uniform(0.3, 0.95)
+        else:
             slider_grey = np.random.uniform(0.1, 0.25)
-            color_range = sim_config.domain_randomization_color_range
-
-            randomize_pusher(color_range=color_range)
+            table_grey = np.random.uniform(0.3, 0.95)
+            mu_dynamic = sim_config.slider_physical_properties.mu_dynamic
+            mu_static = sim_config.slider_physical_properties.mu_static
+            randomize_pusher(color_range=sim_config.domain_randomization_color_range)
             randomize_table(
                 default_color=[table_grey, table_grey, table_grey],
-                color_range=color_range,
+                color_range=sim_config.domain_randomization_color_range,
+                mu_dynamic=mu_dynamic,
+                mu_static=mu_static,
             )
 
+            # Define callback for MakeHardwareStation
             def add_slider_to_parser(parser):
-                """Simple parser pre-finalize callback to add slider, with domain randomization, to parser."""
-                sdf_file = get_slider_sdf_path(sim_config, models_folder)
-                safe_parse = etree.XMLParser(recover=True)
-                tree = etree.parse(sdf_file, safe_parse)
-                root = tree.getroot()
+                """Just add slider model (by SDF string) with randomized color"""
+                sdf_string = get_randomized_slider_sdf_string(
+                    sim_config,
+                    default_color=[slider_grey, slider_grey, slider_grey],
+                    color_range=sim_config.domain_randomization_color_range,
+                )
+                (slider,) = parser.AddModelsFromString(sdf_string, "sdf")
 
-                diffuse_elements = root.xpath("//model/link/visual/material/diffuse")
-
-                slider_color = random_rgba_from_color_range([slider_grey, slider_grey, slider_grey], color_range)
-                new_diffuse_value = f"{slider_color.r()} {slider_color.g()} {slider_color.b()} {slider_color.a()}"
-                for diffuse in diffuse_elements:
-                    diffuse.text = new_diffuse_value
-
-                sdf_as_string = etree.tostring(tree, encoding="utf8").decode()
-
-                (slider,) = parser.AddModelsFromString(sdf_as_string, "sdf")
-
-        scenario = LoadScenario(filename=scenario_file_name, scenario_name=scenario_name)
+        scenario = LoadScenario(filename=f"{models_folder}/{scenario_file_name}", scenario_name=scenario_name)
 
         # Add cameras to scenario (they aren't included in the scenario yaml file)
         if sim_config.camera_configs:

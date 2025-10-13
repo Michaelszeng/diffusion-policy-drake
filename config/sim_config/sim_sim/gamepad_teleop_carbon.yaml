@@ -12,7 +12,7 @@ arbitrary_shape_pickle_path: arbitrary_shape_pickles/small_t_pusher.pkl
 arbitrary_shape_rgba: [0.15, 0.15, 0.15, 1.0]
 arbitrary_shape_visual_mesh_path: null # Can be null (collision mesh will be used)
 physical_properties: # Slider physical properties
-  _target_: planning_through_contact.tools.utils.PhysicalProperties
+  _target_: planning_through_contact.geometry.physical_properties.PhysicalProperties
   mass: 0.1
   inertia: [[1e-5, 0.0, 0.0], [0.0, 1e-5, 0.0], [0.0, 0.0, 1e-5]]
   center_of_mass: null # [0.0, 0.0, 0.0] # Use null for uniform densit7y
@@ -115,10 +115,6 @@ camera_configs:
 domain_randomization_color_range: 0.0
 log_dir: 'diffusion_policy_logs'
 
-scene_directive_name: 'planar_pushing_iiwa_plant_hydroelastic.yaml'
-default_joint_positions: [0.6202, 1.0135, -0.5873, -1.4182, 0.6449, 0.8986, 2.98796]
-joint_velocity_limit_factor: 1.0 # .inf
-
 ########################################################################################################################
 ### MultiRunConfig
 ########################################################################################################################
@@ -148,6 +144,9 @@ multi_run_config:
 ########################################################################################################################
 ### Robot specific configs
 ########################################################################################################################
+default_joint_positions: [0.6202, 1.0135, -0.5873, -1.4182, 0.6449, 0.8986, 2.98796]
+joint_velocity_limit_factor: 1.0 # .inf
+
 robot_station:
   _target_: planning_through_contact.simulation.controllers.iiwa_hardware_station.IiwaHardwareStation
   sim_config: null  # override in hydra.utils.instantiate

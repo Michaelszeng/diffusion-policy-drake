@@ -15,6 +15,7 @@ from planning_through_contact.geometry.collision_geometry.arbitrary_shape_2d imp
 )
 from planning_through_contact.geometry.collision_geometry.box_2d import Box2d
 from planning_through_contact.geometry.collision_geometry.t_pusher_2d import TPusher2d
+from planning_through_contact.geometry.physical_properties import PhysicalProperties
 from planning_through_contact.geometry.planar.planar_pose import PlanarPose
 from planning_through_contact.geometry.rigid_body import RigidBody
 from planning_through_contact.simulation.controllers.diffusion_policy_source import (
@@ -23,9 +24,10 @@ from planning_through_contact.simulation.controllers.diffusion_policy_source imp
 from planning_through_contact.simulation.sim_utils import (
     BoxWorkspace,
     PlanarPushingWorkspace,
+    configure_table_and_slider_friction,
+    create_arbitrary_shape_sdf_file,
     randomize_camera_config,
 )
-from planning_through_contact.tools.utils import PhysicalProperties
 
 
 class MultiRunConfig:
@@ -50,22 +52,6 @@ class MultiRunConfig:
         slider_physical_properties: PhysicalProperties = None,
         num_trials_to_record: int = 0,
     ):
-        # Define geometry of slider
-        # Create sim_config with mandatory fields
-        # TODO: read slider directly from yaml instead of if statement
-        if slider_type == "box":
-            slider: RigidBody = RigidBody("box", Box2d(0.1, 0.1), slider_physical_properties.mass)
-        elif slider_type == "tee":
-            slider: RigidBody = RigidBody("tee", TPusher2d(), slider_physical_properties.mass)
-        elif slider_type == "arbitrary":
-            slider: RigidBody = RigidBody(
-                "arbitrary",
-                ArbitraryShape2D(arbitrary_shape_pickle_path, slider_physical_properties.center_of_mass),
-                slider_physical_properties.mass,
-            )
-        else:
-            raise ValueError(f"Slider type not yet implemented: {slider_type}")
-
         # Define workspace for initial slider pose
         workspace = PlanarPushingWorkspace(
             slider=BoxWorkspace(
@@ -146,8 +132,7 @@ class PlanarPushingSimConfig:
         """Create sim_config from yaml file (i.e. gamepad_teleop_carbon.yaml)"""
         slider_physical_properties: PhysicalProperties = hydra.utils.instantiate(cfg.physical_properties)
 
-        # Create sim_config with mandatory fields
-        # TODO: read slider directly from yaml instead of if statement
+        # Define geometry of slider
         if cfg.slider_type == "box":
             slider: RigidBody = RigidBody("box", Box2d(0.1, 0.1), slider_physical_properties.mass)
         elif cfg.slider_type == "tee":
@@ -158,11 +143,34 @@ class PlanarPushingSimConfig:
                 ArbitraryShape2D(cfg.arbitrary_shape_pickle_path, slider_physical_properties.center_of_mass),
                 slider_physical_properties.mass,
             )
+            # Generate new SDF file for arbitrary shape based on the pickle file
+            create_arbitrary_shape_sdf_file(cfg, slider_physical_properties, slider.geometry)
         else:
             raise ValueError(f"Slider type not yet implemented: {cfg.slider_type}")
 
+        configure_table_and_slider_friction(
+            slider.geometry,
+            mu_dynamic=slider_physical_properties.mu_dynamic,
+            mu_static=slider_physical_properties.mu_static,
+        )
+
         slider_goal_pose: PlanarPose = hydra.utils.instantiate(cfg.slider_goal_pose)
         pusher_start_pose: PlanarPose = hydra.utils.instantiate(cfg.pusher_start_pose)
+
+        # Retrieve correct scene directive name based on the robot station type
+        if (
+            cfg.robot_station._target_
+            == "planning_through_contact.simulation.controllers.iiwa_hardware_station.IiwaHardwareStation"
+        ):
+            scene_directive_name = "planar_pushing_iiwa_plant_hydroelastic.yaml"
+        elif (
+            cfg.robot_station._target_
+            == "planning_through_contact.simulation.controllers.cylinder_actuated_station.CylinderActuatedStation"
+        ):
+            scene_directive_name = "planar_pushing_cylinder_plant_hydroelastic.yaml"
+        else:
+            raise ValueError(f"Invalid robot station type: {cfg.robot_station._target_}")
+
         sim_config = cls(
             slider=slider,
             contact_model=eval(cfg.contact_model),
@@ -174,7 +182,7 @@ class PlanarPushingSimConfig:
             use_realtime=cfg.use_realtime,
             delay_before_execution=cfg.delay_before_execution,
             save_plots=cfg.save_plots,
-            scene_directive_name=cfg.scene_directive_name,
+            scene_directive_name=scene_directive_name,
             use_hardware=cfg.use_hardware,
             pusher_radius=cfg.pusher_radius,
             pusher_z_offset=cfg.pusher_z_offset,

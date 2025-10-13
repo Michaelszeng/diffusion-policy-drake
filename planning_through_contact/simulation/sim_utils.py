@@ -2,7 +2,7 @@ import copy
 import os
 import time
 from dataclasses import dataclass, field
-from typing import List, Literal, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import numpy.typing as npt
@@ -28,14 +28,18 @@ from pydrake.all import RigidBody as DrakeRigidBody
 from planning_through_contact.geometry.collision_checker import CollisionChecker
 from planning_through_contact.geometry.collision_geometry.arbitrary_shape_2d import (
     ArbitraryShape2D,
+    create_processed_mesh_primitive_sdf_file,
+    load_primitive_info,
 )
 from planning_through_contact.geometry.collision_geometry.box_2d import Box2d
+from planning_through_contact.geometry.collision_geometry.collision_geometry import CollisionGeometry
 from planning_through_contact.geometry.collision_geometry.t_pusher_2d import TPusher2d
 from planning_through_contact.geometry.planar.planar_pose import PlanarPose
 from planning_through_contact.geometry.rigid_body import RigidBody
 from planning_through_contact.simulation.controllers.robot_system_base import (
     RobotSystemBase,
 )
+from planning_through_contact.utils import locked_open
 from planning_through_contact.visualize.colors import COLORS
 
 package_xml_file = os.path.join(os.path.dirname(__file__), "models/package.xml")
@@ -44,6 +48,8 @@ models_folder = os.path.join(os.path.dirname(__file__), "models")
 
 @dataclass
 class BoxWorkspace:
+    """Just used for defining valid workspace for slider initialization."""
+
     width: float = 0.5
     height: float = 0.5
     center: npt.NDArray[np.float64] = field(default_factory=lambda: np.array([0.0, 0.0]))
@@ -77,9 +83,15 @@ class BoxWorkspace:
 
 @dataclass
 class PlanarPushingWorkspace:
+    """Just used for defining valid workspace for slider initialization."""
+
     slider: BoxWorkspace = field(
         default_factory=lambda: BoxWorkspace(width=1.0, height=1.0, center=np.array([0.0, 0.0]), buffer=0.0)
     )
+
+
+def clamp(val, min_val, max_val):
+    return max(min(val, max_val), min_val)
 
 
 def GetParser(plant: MultibodyPlant) -> Parser:
@@ -109,54 +121,135 @@ def LoadRobotOnly(sim_config, robot_plant_file) -> MultibodyPlant:
     return robot
 
 
+def _slider_base_filename(collision_geometry) -> str:
+    """Return 'box_hydroelastic', 't_pusher', or 'arbitrary_shape' based on slider geometry."""
+    if isinstance(collision_geometry, Box2d):
+        return "box_hydroelastic"
+    elif isinstance(collision_geometry, TPusher2d):
+        return "t_pusher"
+    elif isinstance(collision_geometry, ArbitraryShape2D):
+        return "arbitrary_shape"
+    else:
+        raise NotImplementedError()
+
+
+def GetSliderUrl(sim_config):
+    """Return package path to slider SDF/YAML file."""
+    base = _slider_base_filename(sim_config.slider.geometry)
+    return f"package://planning_through_contact/{base}.sdf"
+
+
+def get_slider_sdf_path(sim_config=None, collision_geometry=None) -> str:
+    """Return relative file path to slider SDF file. Accepts either sim_config or collision_geometry."""
+    if sim_config is not None:
+        collision_geometry = sim_config.slider.geometry
+    base = _slider_base_filename(collision_geometry)
+    return f"{models_folder}/{base}.sdf"
+
+
+def create_arbitrary_shape_sdf_file(cfg, physical_properties, collision_geometry):
+    """
+    Creates an SDF file for an arbitrary shape based on the pickle file.
+    """
+    sdf_path = get_slider_sdf_path(collision_geometry=collision_geometry)
+
+    translation = -np.concatenate(
+        [collision_geometry.com_offset.flatten(), [0]]
+    )  # Plan assumes that object frame = CoM frame
+
+    primitive_info = load_primitive_info(cfg.arbitrary_shape_pickle_path)
+    create_processed_mesh_primitive_sdf_file(
+        primitive_info=primitive_info,
+        visual_mesh_file_path=cfg.arbitrary_shape_visual_mesh_path,
+        physical_properties=physical_properties,
+        global_translation=translation,
+        output_file_path=sdf_path,
+        model_name="arbitrary",
+        base_link_name="arbitrary",
+        is_hydroelastic="hydroelastic" in cfg.contact_model.lower(),
+        rgba=cfg.arbitrary_shape_rgba,
+        com_override=[0.0, 0.0, 0.0],  # Plan assumes that object frame = CoM frame
+    )
+
+
+def _set_drake_friction(root, mu_dynamic: float, mu_static: float):
+    """
+    Common helper to set friction values in any Drake XML (URDF/SDF).
+    Mutates all drake:mu_* tags inside `root`.
+    """
+    for elem in root.xpath("//*[local-name()='mu_dynamic']"):
+        elem.set("value", str(mu_dynamic))
+    for elem in root.xpath("//*[local-name()='mu_static']"):
+        elem.set("value", str(mu_static))
+
+
+def configure_table_and_slider_friction(
+    collision_geometry: CollisionGeometry,
+    mu_dynamic: float = 0.5,
+    mu_static: float = 0.5,
+    table_urdf: str = "small_table_hydroelastic.urdf",
+) -> None:
+    """
+    Modify table URDF to use specified friction coefficients.
+
+    Args:
+        mu_dynamic: Dynamic coefficient of friction to apply to table
+        mu_static: Static coefficient of friction to apply to table
+        table_urdf: Table's URDF filename
+    """
+    # Update Table friction
+    base_urdf = f"{models_folder}/{table_urdf}"
+    parser = etree.XMLParser(recover=True)
+    tree = etree.parse(base_urdf, parser)
+    root = tree.getroot()
+    _set_drake_friction(root, mu_dynamic, mu_static)
+    with locked_open(base_urdf, "wb") as fh:
+        tree.write(fh, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+
+    # Update Slider friction
+    slider_sdf_path = get_slider_sdf_path(collision_geometry=collision_geometry)
+    tree = etree.parse(slider_sdf_path, parser)
+    root = tree.getroot()
+    _set_drake_friction(root, mu_dynamic, mu_static)
+    with locked_open(slider_sdf_path, "wb") as fh:
+        tree.write(fh, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+
+
 def AddSliderAndConfigureContact(sim_config, plant, scene_graph) -> ModelInstanceIndex:
     parser = Parser(plant, scene_graph)
     ConfigureParser(parser)
-    use_hydroelastic = sim_config.contact_model == ContactModel.kHydroelastic
 
-    if not use_hydroelastic:
+    if sim_config.contact_model != ContactModel.kHydroelastic:
         raise NotImplementedError()
 
     directives = LoadModelDirectives(f"{models_folder}/{sim_config.scene_directive_name}")
     ProcessModelDirectives(directives, plant, parser)  # type: ignore
 
     slider_sdf_url = GetSliderUrl(sim_config)
-
     (slider,) = parser.AddModels(url=slider_sdf_url)
 
-    if use_hydroelastic:
-        plant.set_contact_model(ContactModel.kHydroelastic)
-        plant.set_discrete_contact_approximation(DiscreteContactApproximation.kLagged)
-
+    plant.set_contact_model(ContactModel.kHydroelastic)
+    plant.set_discrete_contact_approximation(DiscreteContactApproximation.kLagged)
     plant.Finalize()
+
     return slider
 
 
-def GetSliderUrl(sim_config, format: Literal["sdf", "yaml"] = "sdf"):
-    if isinstance(sim_config.slider.geometry, Box2d):
-        slider_sdf_url = f"package://planning_through_contact/box_hydroelastic.{format}"
-    elif isinstance(sim_config.slider.geometry, TPusher2d):
-        slider_sdf_url = f"package://planning_through_contact/t_pusher.{format}"
-    elif isinstance(sim_config.slider.geometry, ArbitraryShape2D):
-        slider_sdf_url = f"package://planning_through_contact/arbitrary_shape.{format}"
-    else:
-        raise NotImplementedError(f"Body '{sim_config.slider}' not supported")
-    return slider_sdf_url
+def get_randomized_slider_sdf_string(sim_config, default_color=[0.1, 0.1, 0.1], color_range=0.02) -> str:
+    """
+    Get string for SDF file containing slider with randomized color.
+    """
+    sdf_file = get_slider_sdf_path(sim_config)
+    tree = etree.parse(sdf_file, etree.XMLParser(recover=True))
+    root = tree.getroot()
 
+    slider_color = random_rgba_from_color_range(default_color, color_range)
+    new_diffuse_value = f"{slider_color.r()} {slider_color.g()} {slider_color.b()} {slider_color.a()}"
 
-def get_slider_sdf_path(sim_config, models_folder: str) -> str:
-    if isinstance(sim_config.slider.geometry, Box2d):
-        slider_sdf_url = f"{models_folder}/box_hydroelastic.sdf"
-    elif isinstance(sim_config.slider.geometry, TPusher2d):
-        slider_sdf_url = f"{models_folder}/t_pusher.sdf"
-    elif isinstance(sim_config.slider.geometry, ArbitraryShape2D):
-        slider_sdf_url = f"{models_folder}/arbitrary_shape.sdf"
-    else:
-        raise NotImplementedError(f"Body '{sim_config.slider}' not supported")
-    return slider_sdf_url
+    for diffuse in root.xpath("//model/link/visual/material/diffuse"):
+        diffuse.text = new_diffuse_value
 
-
-## Domain Randomization Functions
+    return etree.tostring(tree, encoding="utf8").decode()
 
 
 def AddRandomizedSliderAndConfigureContact(
@@ -168,38 +261,24 @@ def AddRandomizedSliderAndConfigureContact(
 ) -> ModelInstanceIndex:
     parser = Parser(plant, scene_graph)
     ConfigureParser(parser)
-    use_hydroelastic = sim_config.contact_model == ContactModel.kHydroelastic
 
-    if not use_hydroelastic:
+    if sim_config.contact_model != ContactModel.kHydroelastic:
         raise NotImplementedError()
 
-    scene_directive_name = f"{sim_config.scene_directive_name.split('.')[0]}_randomized.yaml"
-    directives = LoadModelDirectives(f"{models_folder}/{scene_directive_name}")
+    directives = LoadModelDirectives(f"{models_folder}/{sim_config.scene_directive_name}")
     ProcessModelDirectives(directives, plant, parser)  # type: ignore
 
-    sdf_file = get_slider_sdf_path(sim_config, models_folder)
-    safe_parse = etree.XMLParser(recover=True)
-    tree = etree.parse(sdf_file, safe_parse)
-    root = tree.getroot()
-
-    diffuse_elements = root.xpath("//model/link/visual/material/diffuse")
-
-    slider_color = random_rgba_from_color_range(default_color, color_range)
-
-    new_diffuse_value = f"{slider_color.r()} {slider_color.g()} {slider_color.b()} {slider_color.a()}"
-    for diffuse in diffuse_elements:
-        diffuse.text = new_diffuse_value
-
-    sdf_as_string = etree.tostring(tree, encoding="utf8").decode()
-
+    sdf_as_string = get_randomized_slider_sdf_string(sim_config, default_color, color_range)
     (slider,) = parser.AddModelsFromString(sdf_as_string, "sdf")
 
-    if use_hydroelastic:
-        plant.set_contact_model(ContactModel.kHydroelastic)
-        plant.set_discrete_contact_approximation(DiscreteContactApproximation.kLagged)
-
+    plant.set_contact_model(ContactModel.kHydroelastic)
+    plant.set_discrete_contact_approximation(DiscreteContactApproximation.kLagged)
     plant.Finalize()
+
     return slider
+
+
+## Domain Randomization Functions
 
 
 def randomize_table(
@@ -207,7 +286,13 @@ def randomize_table(
     color_range=0.02,
     table_urdf: str = "small_table_hydroelastic.urdf",
     texture_randomization_ratio: float = 0.0,
+    randomize_friction=False,
 ) -> None:
+    """
+    Randomize table appearance and friction (if randomize_friction = True).
+
+    NOTE: randomize_friction is not implemented.
+    """
     base_urdf = f"{models_folder}/{table_urdf}"
     parser = etree.XMLParser(recover=True)
     tree = etree.parse(base_urdf, parser)
@@ -239,8 +324,10 @@ def randomize_table(
     #     texture = etree.SubElement(material[0], "texture")
     #     texture.set("filename", f'{models_folder}/{image_file}')
     #     # new_urdf_location = f'{models_folder}/small_table_hydroelastic_randomized.urdf'
-    new_urdf_location = f"{models_folder}/small_table_hydroelastic_randomized.urdf"
-    tree.write(new_urdf_location, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+
+    # Overwrite original URDF in-place so downstream YAML paths remain valid
+    with locked_open(base_urdf, "wb") as fh:
+        tree.write(fh, pretty_print=True, xml_declaration=True, encoding="UTF-8")
 
 
 def randomize_pusher(
@@ -248,6 +335,9 @@ def randomize_pusher(
     color_range=0.02,
     pusher_sdf: str = "pusher_floating_hydroelastic.sdf",
 ) -> None:
+    """
+    Randomize pusher appearance.
+    """
     base_sdf = f"{models_folder}/{pusher_sdf}"
 
     safe_parse = etree.XMLParser(recover=True)
@@ -262,13 +352,9 @@ def randomize_pusher(
     for diffuse in diffuse_elements:
         diffuse.text = new_diffuse_value
 
-    new_sdf_location = f"{models_folder}/pusher_floating_hydroelastic_randomized.sdf"
-
-    tree.write(new_sdf_location, pretty_print=True, xml_declaration=True, encoding="UTF-8")
-
-
-def clamp(val, min_val, max_val):
-    return max(min(val, max_val), min_val)
+    # Overwrite original SDF so downstream paths remain valid
+    with locked_open(base_sdf, "wb") as fh:
+        tree.write(fh, pretty_print=True, xml_declaration=True, encoding="UTF-8")
 
 
 def randomize_camera_config(camera_config, translation_limit=0.01, rot_limit_deg=1.0, arbitrary_background=False):

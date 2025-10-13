@@ -72,19 +72,12 @@ class StateEstimator(Diagram):
                 sim_config=sim_config, plant=self._plant, scene_graph=self._scene_graph
             )
         else:
-            # table_grey = np.random.uniform(0.3, 0.95)
-            # slider_grey = np.random.uniform(0.1, 0.25)
-            table_grey = 0.7
-            slider_grey = 0.1
+            table_grey, slider_grey = 0.7, 0.1
             color_range = sim_config.domain_randomization_color_range
-
             randomize_pusher(color_range=color_range)
-            randomize_table(
-                default_color=[table_grey, table_grey, table_grey],
-                color_range=color_range,
-            )
+            randomize_table([table_grey] * 3, color_range, randomize_friction=False)
             self.slider = AddRandomizedSliderAndConfigureContact(
-                default_color=[slider_grey, slider_grey, slider_grey],
+                default_color=[slider_grey] * 3,
                 color_range=color_range,
                 sim_config=sim_config,
                 plant=self._plant,

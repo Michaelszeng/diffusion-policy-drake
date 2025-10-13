@@ -1,9 +1,8 @@
 speed-optimized:
     directives:
+    # Directly import table and iiwa controller plant from the plant_hydroelastic directive
     - add_directives:
-        file: package://planning_through_contact/iiwa_controller_plant.yaml
-    - add_directives:
-        file: package://planning_through_contact/small_table.yaml
+        file: package://planning_through_contact/planar_pushing_iiwa_plant_hydroelastic.yaml
     plant_config:
         time_step: 5e-3 #0.001
         contact_model: "point" #"hydroelastic"

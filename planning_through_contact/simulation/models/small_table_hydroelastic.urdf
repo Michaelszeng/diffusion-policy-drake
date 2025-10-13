@@ -1,5 +1,5 @@
- <?xml version="1.0"?>
-<robot name="table">
+<?xml version='1.0' encoding='UTF-8'?>
+<robot xmlns:drake="http://drake.mit.edu" name="table">
   <material name="Brown">
     <color rgba="0.75 0.6 0.5 0.8"/>
   </material>

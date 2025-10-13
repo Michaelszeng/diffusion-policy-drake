@@ -1,6 +1,6 @@
-
-        <?xml version="1.0"?>
-        <sdf version="1.7">
+<?xml version='1.0' encoding='UTF-8'?>
+<?xml version="1.0"?>
+<sdf version="1.7">
             <model name="arbitrary">
                 <link name="arbitrary">
                     <inertial>
@@ -125,4 +125,3 @@
                     </link>
                 </model>
             </sdf>
-        
