@@ -42,6 +42,7 @@ from typing import Dict, Iterable, List, Optional, Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
+import statsmodels.stats.proportion as smp
 from matplotlib.ticker import ScalarFormatter
 
 NAVY = "#1f3b6f"
@@ -196,16 +197,6 @@ def collect_best_results(experiment_path: Path) -> List[HorizonResult]:
     return results
 
 
-def wilson_interval(p_hat: float, n: int, z: float = 1.96) -> tuple[float, float]:
-    """
-    95% Wilson score interval (default z≈1.96). Clamps to [0,1].
-    """
-    denom = 1.0 + (z**2) / n
-    center = (p_hat + (z**2) / (2.0 * n)) / denom
-    half = (z * math.sqrt((p_hat * (1.0 - p_hat) + (z**2) / (4.0 * n)) / n)) / denom
-    lo = max(0.0, center - half)
-    hi = min(1.0, center + half)
-    return lo, hi
 
 
 def make_plot(
@@ -243,7 +234,7 @@ def make_plot(
         num_trials = np.array([res.num_trials for res in results], dtype=int)
 
         # Compute Wilson 95% CI per point
-        ci_bounds = np.array([wilson_interval(p, n) for p, n in zip(success_rates, num_trials)], dtype=float)
+        ci_bounds = np.array([smp.proportion_confint(int(p * n), n, alpha=0.05, method='wilson') for p, n in zip(success_rates, num_trials)], dtype=float)
         ci_lo = ci_bounds[:, 0]
         ci_hi = ci_bounds[:, 1]
         # yerr expects distances from the central value

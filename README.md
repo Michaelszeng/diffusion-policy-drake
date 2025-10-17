@@ -168,3 +168,12 @@ To monitor eval:
 tail -f submit_training.sh.log-XXXX
 ```
 
+
+
+## Notes About the Current Parallism Model
+
+Currently, `run_sim_sim_eval.py` is completely serial, executing trials sequentially.
+
+`launch_eval.py`, which is called with a number of GPU's and a degree of parallelism for each GPU, invokes all the parallelism. It then launches one instance of `run_sim_sim_eval.py` per parallel thread. Thus, parallelism primarily helps in multi-job evals.
+
+If you only have one job (i.e. one checkpoint and a single line your CSV config file), then the current parallelism model doesn't help at all. Additionally, you have a straggler job that takes much longer than the rest (i.e. if one action horizon has much lower success rate), no parallelism will be used to help that straggler finish.

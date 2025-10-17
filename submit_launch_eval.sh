@@ -1,7 +1,12 @@
 #!/bin/bash
 
 # Usage
-# LLsub ./submit_launch_eval.sh -s 20 -g volta:1
+# LLsub ./submit_launch_eval.sh -s 20 -g volta:1 -- config/all_action_horizons_launch_eval_supercloud.txt "50,100,350"
+# Parameters:
+#   $1: Config path (default: config/all_action_horizons_launch_eval_supercloud.txt)
+#   $2: Num trials, comma-separated (default: "45,55,100")
+#   $3: Concurrent jobs per GPU (default: 10)
+#   $4: Number of GPUs (default: 2)
 
 # Initialize and Load Modules
 echo "[submit_launch_eval.sh] Loading modules and virtual environment."
@@ -57,16 +62,24 @@ if [ ! -f "$CONFIG_PATH" ]; then
     exit 1
 fi
 
+# Accept comma-separated list (e.g. "50,100,350") and convert to space-separated
+DEFAULT_NUM_TRIALS="45,55,100"
+# If the user supplied a second positional parameter, use it; otherwise use default
+RAW_NUM_TRIALS="${2:-$DEFAULT_NUM_TRIALS}"
+# Replace commas with spaces so that launch_eval.py receives a space-delimited list
+NUM_TRIALS="${RAW_NUM_TRIALS//,/ }"
+
 DEFAULT_CONCURRENT_JOBS_PER_GPU=10
-CONCURRENT_JOBS_PER_GPU="${2:-$DEFAULT_CONCURRENT_JOBS_PER_GPU}"
+CONCURRENT_JOBS_PER_GPU="${3:-$DEFAULT_CONCURRENT_JOBS_PER_GPU}"
 
 DEFAULT_NUM_GPUS=2
-NUM_GPUS="${3:-$DEFAULT_NUM_GPUS}"
+NUM_GPUS="${4:-$DEFAULT_NUM_GPUS}"
 
 echo "[submit_launch_eval.sh] Running eval code..."
 echo "[submit_launch_eval.sh] Date: $DATE"
 echo "[submit_launch_eval.sh] Time: $TIME"
 echo "[submit_launch_eval.sh] Config: $CONFIG_PATH"
+echo "[submit_launch_eval.sh] Num trials: $NUM_TRIALS"
 echo "[submit_launch_eval.sh] Concurrent jobs per GPU: $CONCURRENT_JOBS_PER_GPU"
 echo "[submit_launch_eval.sh] Number of GPUs to use: $NUM_GPUS"
 
@@ -75,6 +88,6 @@ python -u scripts/launch_eval.py \
     --csv-path "$CONFIG_PATH" \
     --max-concurrent-jobs-per-gpu $CONCURRENT_JOBS_PER_GPU \
     --num-gpus $NUM_GPUS \
-    --num-trials 45 55 100 \
+    --num-trials-per-round $NUM_TRIALS \
     --drop-threshold 0.05 \
     --force

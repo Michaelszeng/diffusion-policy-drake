@@ -10,6 +10,7 @@ import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from typing import List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -184,19 +185,22 @@ def load_jobs_from_csv(csv_file):
 
     job_groups = {}
     with open(csv_file, "r") as f:
-        reader = csv.DictReader(f)
+        # Filter out comment lines starting with #
+        lines = [line for line in f if not line.strip().startswith('#')]
+        reader = csv.DictReader(lines)
         for row in reader:
             checkpoint_path = row.get("checkpoint_path", "").strip()
             run_dir = row.get("run_dir", "").strip()
             config_name = row.get("config_name", CONFIG_NAME).strip()
             overrides = row.get("overrides", "").strip()
+            
+            # Use the run_dir provided in the CSV as the experiment identifier
+            group_key = _make_unique_group_key(run_dir, job_groups)
 
             # If evaluating a single checkpoint, create a single-element group
             if checkpoint_path.endswith(".ckpt"):
                 assert os.path.exists(checkpoint_path), f"Checkpoint file '{checkpoint_path}' does not exist."
                 checkpoint_root, checkpoint_file = get_checkpoint_root_and_name(checkpoint_path)
-                group_key = _make_unique_group_key(checkpoint_root, job_groups)
-
                 job_config = JobConfig(
                     checkpoint_path=checkpoint_path,
                     run_dir=f"{run_dir}/{checkpoint_file}",
@@ -213,7 +217,6 @@ def load_jobs_from_csv(csv_file):
             else:
                 checkpoint_group = {}
                 checkpoints_dir = os.path.join(checkpoint_path, "checkpoints")
-                group_key = _make_unique_group_key(checkpoint_path, job_groups)
                 for checkpoint_file in os.listdir(checkpoints_dir):
                     if checkpoint_file.endswith(".ckpt"):
                         full_checkpoint_path = os.path.join(checkpoints_dir, checkpoint_file)
@@ -558,6 +561,12 @@ def main():
 
     # Flatten all job configs from all groups into a single list
     jobs_to_run = [job_config for group in job_groups.values() for job_config in group.values()]
+    
+    # Instrumentation for plotting: maintain a list of (timestamp, ±1) when a
+    # job starts / ends, and round completion timestamps (offsets from start).
+    timeline_events: List[Tuple[float, int]] = []  # (unix_time, delta_active)
+    round_end_offsets: List[float] = []
+    overall_start_time = time.time()
 
     # Execute multiple rounds of evaluation, with increasing trial counts, dropping poor checkpoints after each round
     # Iterate through rounds
@@ -602,12 +611,17 @@ def main():
                     len(num_trials_per_round),
                     gpu_queue,
                 )
+                # Log job-start event
+                timeline_events.append((time.time(), +1))
                 futures[future] = job_config
                 time.sleep(0.1)  # So that prints don't overlap
 
             # Wait for all jobs to complete and collect results
             for future in as_completed(futures):
                 job_result = future.result()
+
+                # Log job-end event
+                timeline_events.append((time.time(), -1))
 
                 if job_result is not None:
                     job_config = job_result.job_config
@@ -630,8 +644,19 @@ def main():
         if i != len(num_trials_per_round) - 1:
             jobs_to_run = determine_new_jobs_to_run(success_rates, drop_threshold)
 
+        # Mark round end offset
+        round_end_offsets.append(time.time() - overall_start_time)
+
     print("\n✅ All jobs finished.\n")
     print_best_checkpoints(success_rates, job_groups)
+
+    # Generate and save job timeline plot
+    try:
+        output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "job_timeline.png")
+        _plot_job_timeline(timeline_events, round_end_offsets, overall_start_time, output_path)
+        print(f"Saved job timeline plot to {output_path}")
+    except Exception as e:
+        print(f"Failed to generate job timeline plot: {e}")
 
 
 def create_probability_grid(N1, N2, threshold=0.05):
@@ -663,6 +688,52 @@ def visualize_grid(grid, N1, N2, threshold):
 
     plt.tight_layout()
     plt.savefig("probability_grid.png")
+
+
+def _plot_job_timeline(
+    events: List[Tuple[float, int]],
+    round_end_offsets: List[float],
+    start_time: float,
+    output_path: str = "job_timeline.png",
+):
+    """Plot number of active jobs vs. time.
+
+    Parameters
+    ----------
+    events : list of (timestamp, delta)
+        Each entry increments (+1) or decrements (−1) the active-job counter.
+    round_end_offsets : list of float
+        Offsets (seconds) from *start_time* marking the end of each round.
+    start_time : float
+        Reference unix time when the first event was logged.
+    output_path : str
+        Where to save the resulting PNG.
+    """
+    # Sort events chronologically
+    events = sorted(events, key=lambda x: x[0])
+
+    xs, ys = [0.0], [0]  # initial state
+    active = 0
+    for t, delta in events:
+        # Time since start in seconds
+        offset = t - start_time
+        active += delta
+        xs.append(offset)
+        ys.append(active)
+
+    plt.figure(figsize=(10, 4))
+    plt.step(xs, ys, where="post", label="Active jobs")
+
+    for offset in round_end_offsets:
+        plt.axvline(offset, color="red", linestyle="--", alpha=0.5)
+
+    plt.xlabel("Time (s)")
+    plt.ylabel("Number of running jobs")
+    plt.title("Job concurrency over time")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
 
 
 # if __name__ == "__main__":
