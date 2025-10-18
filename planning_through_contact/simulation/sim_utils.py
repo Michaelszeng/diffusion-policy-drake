@@ -459,11 +459,13 @@ def get_slider_initial_pose_within_workspace(
     workspace: "PlanarPushingWorkspace",
     slider: "RigidBody",
     pusher_pose: "PlanarPose",
+    slider_goal_pose: "PlanarPose",
     collision_checker: "CollisionChecker",
     limit_rotations: bool = False,
     rotation_limit: float = None,
     timeout_s: float = 10.0,
     rng: Optional[np.random.Generator] = None,
+    GOAL_EXCLUSION_RADIUS: float = float("inf")  # Disable goal exclusion
 ) -> Optional["PlanarPose"]:
     """
     Generates a random valid pose for a slider object that avoids collisions with the pusher
@@ -495,7 +497,15 @@ def get_slider_initial_pose_within_workspace(
             th_initial = rng.uniform(-np.pi + EPS, np.pi - EPS)
 
         slider_pose = PlanarPose(x_initial, y_initial, th_initial)
-
+        
+        # First, check that the initial pose is not already within some tolerance of success pose
+        dist_to_goal = np.linalg.norm(
+            slider_pose.vector()[:2] - slider_goal_pose.vector()[:2]
+        )
+        if dist_to_goal < GOAL_EXCLUSION_RADIUS:
+            continue          # resample
+        
+        # Now, check collision free
         collides_with_pusher = collision_checker.check_collision(slider_pose, pusher_pose)  # Z-height doesn't matter
         # collision_checker.visualize_once(slider_pose, pusher_pose)  # debug visualization
         within_workspace = slider_within_workspace(workspace, slider_pose, slider)

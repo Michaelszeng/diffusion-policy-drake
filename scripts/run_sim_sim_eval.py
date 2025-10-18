@@ -378,8 +378,7 @@ class SimSimEval:
         pusher_error = pusher_goal_pose.vector() - pusher_pose.vector()
 
         slider_pose = self.get_slider_pose()
-        slider_goal_pose = self.sim_config.slider_goal_pose
-        slider_error = slider_goal_pose.vector() - slider_pose.vector()
+        slider_error = self.slider_goal_pose.vector() - slider_pose.vector()
 
         return {"pusher_error": pusher_error[:2], "slider_error": slider_error}
 
@@ -393,7 +392,7 @@ class SimSimEval:
         ss = np.random.SeedSequence([self.multi_run_config.seed, trial_idx])
         trial_rng = np.random.default_rng(ss)
         slider_pose = get_slider_initial_pose_within_workspace(
-            self.workspace, slider, self.pusher_start_pose, self.collision_checker, rng=trial_rng
+            self.workspace, slider, self.pusher_start_pose, self.slider_goal_pose, self.collision_checker, rng=trial_rng
         )
 
         self.environment.reset(
@@ -461,8 +460,6 @@ class SimSimEval:
         return combined_logs
 
     def get_planar_pushing_log(self, vector_log, start_time, end_time=None):
-        if end_time is not None:
-            assert end_time > start_time
         start_idx = 0
         sample_times = vector_log.sample_times()
         while sample_times[start_idx] < start_time:
