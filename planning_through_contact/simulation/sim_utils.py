@@ -465,7 +465,7 @@ def get_slider_initial_pose_within_workspace(
     rotation_limit: float = None,
     timeout_s: float = 10.0,
     rng: Optional[np.random.Generator] = None,
-    GOAL_EXCLUSION_RADIUS: float = float("inf")  # Disable goal exclusion
+    GOAL_EXCLUSION_RADIUS: float = 0  # Disable goal exclusion
 ) -> Optional["PlanarPose"]:
     """
     Generates a random valid pose for a slider object that avoids collisions with the pusher
