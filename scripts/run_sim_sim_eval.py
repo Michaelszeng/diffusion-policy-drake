@@ -36,6 +36,7 @@ from planning_through_contact.simulation.planar_pushing_sim_config import (
     PlanarPushingSimConfig,
 )
 from planning_through_contact.simulation.sim_utils import get_slider_initial_pose_within_workspace
+from planning_through_contact.utils import file_lock
 from planning_through_contact.visualize.analysis import (
     CombinedPlanarPushingLogs,
     PlanarPushingLog,
@@ -75,7 +76,21 @@ class SimSimEval:
         # load sim_config
         self.cfg = cfg
         self.output_dir = output_dir
-        self.sim_config = PlanarPushingSimConfig.from_yaml(cfg)
+        
+        # Hold system-wide lock during writing and reading of small_table_hydroelastic.urdf and arbitrary_shape.sdf.
+        # After this locked code block is finished, other processes are free to modify these files without affecting
+        # this process.
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        table_urdf_lock = os.path.join(project_root, "planning_through_contact/simulation/models/small_table_hydroelastic.urdf")
+        slider_sdf_lock = os.path.join(project_root, "planning_through_contact/simulation/models/arbitrary_shape.sdf")
+        with file_lock(table_urdf_lock):
+            with file_lock(slider_sdf_lock):
+                self.sim_config = PlanarPushingSimConfig.from_yaml(cfg)
+                # Set up position controller (i.e. IiwaHardwareStation)
+                module_name, class_name = cfg.robot_station._target_.rsplit(".", 1)
+                robot_system_class = getattr(importlib.import_module(module_name), class_name)
+                position_controller: RobotSystemBase = robot_system_class(sim_config=self.sim_config, meshcat=station_meshcat)
+        
         self.multi_run_config = self.sim_config.multi_run_config
         self.pusher_start_pose = self.sim_config.pusher_start_pose
         self.slider_goal_pose = self.sim_config.slider_goal_pose
@@ -92,11 +107,6 @@ class SimSimEval:
 
         # Diffusion Policy
         position_source = DiffusionPolicySource(self.sim_config.diffusion_policy_config)
-
-        # Set up position controller (i.e. IiwaHardwareStation)
-        module_name, class_name = cfg.robot_station._target_.rsplit(".", 1)
-        robot_system_class = getattr(importlib.import_module(module_name), class_name)
-        position_controller: RobotSystemBase = robot_system_class(sim_config=self.sim_config, meshcat=station_meshcat)
 
         # Set up environment
         self.environment = SimulatedRealTableEnvironment(

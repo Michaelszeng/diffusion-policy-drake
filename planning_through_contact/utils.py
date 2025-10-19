@@ -3,6 +3,24 @@ import os
 import tempfile
 from contextlib import contextmanager
 
+@contextmanager
+def file_lock(path: str):
+    """
+    Context-manager that takes an exclusive advisory lock on *path*.
+
+    All other processes that try to lock the same path (with this same helper
+    or any `flock(LOCK_EX)`) will block until the lock is released.
+    Works across different machines provided the underlying filesystem
+    (NFS, Lustre, GPFS, …) supports POSIX locks—as SuperCloud's /home does.
+    """
+    fd = os.open(path, os.O_RDWR | os.O_CREAT)   # O_CREAT lets us lock a fresh .lock file
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
 
 def write_atomic(file_path: str, data: str, mode: str = "w") -> None:
     """

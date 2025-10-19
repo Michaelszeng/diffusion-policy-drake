@@ -75,11 +75,11 @@
                     </drake:mesh_resolution_hint>
             
                     <drake:mu_dynamic>
-                        0.5
+                        1.0
                     </drake:mu_dynamic>
             
                     <drake:mu_static>
-                        0.5
+                        1.0
                     </drake:mu_static>
             
             </drake:proximity_properties>
@@ -110,11 +110,11 @@
                     </drake:mesh_resolution_hint>
             
                     <drake:mu_dynamic>
-                        0.5
+                        1.0
                     </drake:mu_dynamic>
             
                     <drake:mu_static>
-                        0.5
+                        1.0
                     </drake:mu_static>
             
             </drake:proximity_properties>
