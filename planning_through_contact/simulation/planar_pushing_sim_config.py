@@ -126,6 +126,10 @@ class PlanarPushingSimConfig:
     arbitrary_shape_pickle_path: str = ""
     arbitrary_shape_rgba: np.ndarray = np.array([0.0, 0.0, 0.0, 1.0])
     default_joint_positions: np.ndarray = None
+    constant_velocity_disturbance: float = 0.0
+    # PD gains for constant velocity disturbance controller
+    constant_velocity_disturbance_Kp: float = 60.0
+    constant_velocity_disturbance_Kd: float = 5.0
 
     @classmethod
     def from_yaml(cls, cfg: OmegaConf):
@@ -191,6 +195,9 @@ class PlanarPushingSimConfig:
             slider_physical_properties=slider_physical_properties,
             arbitrary_shape_pickle_path=cfg.arbitrary_shape_pickle_path,
             arbitrary_shape_rgba=np.array(cfg.arbitrary_shape_rgba),
+            constant_velocity_disturbance=cfg.constant_velocity_disturbance,
+            constant_velocity_disturbance_Kp=cfg.get("constant_velocity_disturbance_Kp", 60.0),
+            constant_velocity_disturbance_Kd=cfg.get("constant_velocity_disturbance_Kd", 5.0),
         )
 
         # Optional fields
@@ -200,6 +207,11 @@ class PlanarPushingSimConfig:
             sim_config.default_joint_positions = np.array(cfg.default_joint_positions)
         if "joint_velocity_limit_factor" in cfg:
             sim_config.joint_velocity_limit_factor = cfg.joint_velocity_limit_factor
+        # Override disturbance PD gains if provided
+        if "constant_velocity_disturbance_Kp" in cfg:
+            sim_config.constant_velocity_disturbance_Kp = cfg.constant_velocity_disturbance_Kp
+        if "constant_velocity_disturbance_Kd" in cfg:
+            sim_config.constant_velocity_disturbance_Kd = cfg.constant_velocity_disturbance_Kd
         if "diffusion_policy_config" in cfg:
             sim_config.diffusion_policy_config = hydra.utils.instantiate(cfg.diffusion_policy_config)
         if "camera_configs" in cfg and cfg.camera_configs:
@@ -343,4 +355,7 @@ class PlanarPushingSimConfig:
             and np.allclose(self.arbitrary_shape_rgba, other.arbitrary_shape_rgba)
             and self.slider_physical_properties == other.slider_physical_properties
             and self.joint_velocity_limit_factor == other.joint_velocity_limit_factor
+            and self.constant_velocity_disturbance == other.constant_velocity_disturbance
+            and self.constant_velocity_disturbance_Kp == other.constant_velocity_disturbance_Kp
+            and self.constant_velocity_disturbance_Kd == other.constant_velocity_disturbance_Kd
         )

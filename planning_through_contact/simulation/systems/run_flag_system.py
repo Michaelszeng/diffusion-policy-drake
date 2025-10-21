@@ -4,7 +4,9 @@ from pydrake.systems.framework import LeafSystem
 
 class RunFlagSystem(LeafSystem):
     """
-    Converts InputPort to boolean output
+    Converts InputPort to boolean output depending on whether it matches the true_port_index.
+
+    This is used to check whether the IiwaPlanner is in the PUSHING mode.
     """
 
     def __init__(self, true_port_index: int):

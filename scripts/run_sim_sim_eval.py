@@ -10,9 +10,8 @@ from typing import Optional
 
 import hydra
 import numpy as np
-import zarr
 from omegaconf import OmegaConf
-from pydrake.all import HPolyhedron, Meshcat, MeshcatParams, VPolytope
+from pydrake.all import Meshcat, MeshcatParams
 from pydrake.common import configure_logging
 
 from planning_through_contact.geometry.collision_checker import CollisionChecker
@@ -36,6 +35,10 @@ from planning_through_contact.simulation.planar_pushing_sim_config import (
     PlanarPushingSimConfig,
 )
 from planning_through_contact.simulation.sim_utils import get_slider_initial_pose_within_workspace
+from planning_through_contact.simulation.systems.success_checker import (
+    check_success_convex_hull,
+    check_success_tolerance,
+)
 from planning_through_contact.utils import file_lock
 from planning_through_contact.visualize.analysis import (
     CombinedPlanarPushingLogs,
@@ -76,12 +79,14 @@ class SimSimEval:
         # load sim_config
         self.cfg = cfg
         self.output_dir = output_dir
-        
+
         # Hold system-wide lock during writing and reading of small_table_hydroelastic.urdf and arbitrary_shape.sdf.
         # After this locked code block is finished, other processes are free to modify these files without affecting
         # this process.
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        table_urdf_lock = os.path.join(project_root, "planning_through_contact/simulation/models/small_table_hydroelastic.urdf")
+        table_urdf_lock = os.path.join(
+            project_root, "planning_through_contact/simulation/models/small_table_hydroelastic.urdf"
+        )
         slider_sdf_lock = os.path.join(project_root, "planning_through_contact/simulation/models/arbitrary_shape.sdf")
         with file_lock(table_urdf_lock):
             with file_lock(slider_sdf_lock):
@@ -89,8 +94,10 @@ class SimSimEval:
                 # Set up position controller (i.e. IiwaHardwareStation)
                 module_name, class_name = cfg.robot_station._target_.rsplit(".", 1)
                 robot_system_class = getattr(importlib.import_module(module_name), class_name)
-                position_controller: RobotSystemBase = robot_system_class(sim_config=self.sim_config, meshcat=station_meshcat)
-        
+                position_controller: RobotSystemBase = robot_system_class(
+                    sim_config=self.sim_config, meshcat=station_meshcat
+                )
+
         self.multi_run_config = self.sim_config.multi_run_config
         self.pusher_start_pose = self.sim_config.pusher_start_pose
         self.slider_goal_pose = self.sim_config.slider_goal_pose
@@ -116,7 +123,7 @@ class SimSimEval:
             station_meshcat=station_meshcat,
             arbitrary_shape_pickle_path=cfg.arbitrary_shape_pickle_path,
         )
-        self.environment.export_diagram("sim_sim_environment.pdf")
+        self.environment.export_diagram("sim_sim_environment.svg")
 
         # Set up random seeds
         random.seed(self.multi_run_config.seed)
@@ -141,19 +148,6 @@ class SimSimEval:
         valid_success_criteria = ["tolerance", "convex_hull"]
         self.success_criteria = self.multi_run_config.success_criteria
         assert self.success_criteria in valid_success_criteria
-
-        if self.success_criteria == "convex_hull":
-            dataset_path = self.multi_run_config.dataset_path
-            convex_hull = self.get_pusher_goal_polyhedron(dataset_path)
-            self.pusher_goal_convex_hull = convex_hull.Scale(
-                scale=self.multi_run_config.convex_hull_scale,
-                center=self.pusher_start_pose.vector().flatten()[:2],
-            )
-            convex_hull = self.get_slider_goal_polyhedron(dataset_path)
-            self.slider_goal_convex_hull = convex_hull.Scale(
-                scale=self.multi_run_config.convex_hull_scale,
-                center=self.slider_goal_pose.vector().flatten(),
-            )
 
         # Delete log file if it already exists, i.e. between rounds of launch_eval.py
         if os.path.exists(os.path.join(self.output_dir, "summary.txt")):
@@ -320,39 +314,31 @@ class SimSimEval:
             raise ValueError(f"Invalid success criteria: {self.success_criteria}")
 
     def _check_success_tolerance(self, trans_tol, rot_tol):
-        # slider
-        slider_pose = self.get_slider_pose()
-        slider_goal_pose = self.sim_config.slider_goal_pose
-        slider_error = slider_goal_pose.vector() - slider_pose.vector()
-        reached_goal_slider_position = np.linalg.norm(slider_error[:2]) <= trans_tol
-        reached_goal_slider_orientation = np.abs(slider_error[2]) <= np.deg2rad(rot_tol)
+        # Use the global helper function from success_checker module
+        return check_success_tolerance(
+            self.get_slider_pose(),
+            self.sim_config.slider_goal_pose,
+            self.get_pusher_pose(),
+            self.sim_config.pusher_start_pose,
+            trans_tol,
+            rot_tol,
+            self.multi_run_config.evaluate_final_slider_rotation,
+            self.multi_run_config.evaluate_final_pusher_position,
+        )
 
-        # pusher
-        pusher_pose = self.get_pusher_pose()
-        pusher_goal_pose = self.sim_config.pusher_start_pose
-        pusher_error = pusher_goal_pose.vector() - pusher_pose.vector()
-        # Note: pusher goal criterion is intentionally very lenient
-        # since the teleoperator (me) did a poor job as well, oops :) oops
-        reached_goal_pusher_position = np.linalg.norm(pusher_error[:2]) <= 0.04
-
-        if not reached_goal_slider_position:
-            return False
-        if self.multi_run_config.evaluate_final_slider_rotation and not reached_goal_slider_orientation:
-            return False
-        if self.multi_run_config.evaluate_final_pusher_position and not reached_goal_pusher_position:
-            return False
-        return True
+    def _check_success_convex_hull(self):
+        # Use the global helper function from success_checker module
+        return check_success_convex_hull(
+            slider_pose=self.get_slider_pose(),
+            pusher_pose=self.get_pusher_pose(),
+            dataset_path=self.multi_run_config.dataset_path,
+            pusher_start_pose=self.pusher_start_pose,
+            slider_goal_pose=self.slider_goal_pose,
+            convex_hull_scale=self.multi_run_config.convex_hull_scale,
+        )
 
     def check_close_to_goal(self):
         return self._check_success_tolerance(2 * self.multi_run_config.trans_tol, 2 * self.multi_run_config.rot_tol)
-
-    def _check_success_convex_hull(self):
-        slider_pose = self.get_slider_pose().vector()
-        pusher_position = self.get_pusher_pose().vector()[:2]
-
-        slider_success = self.is_contained(slider_pose, self.slider_goal_convex_hull)
-        pusher_success = self.is_contained(pusher_position, self.pusher_goal_convex_hull)
-        return slider_success and pusher_success
 
     def check_failure(self, t, last_reset_time):
         # Check timeout
@@ -405,6 +391,12 @@ class SimSimEval:
             self.workspace, slider, self.pusher_start_pose, self.slider_goal_pose, self.collision_checker, rng=trial_rng
         )
 
+        if self.sim_config.constant_velocity_disturbance > 0.0:
+            # Get random direction
+            direction = trial_rng.uniform(0, 2 * np.pi)
+            v_xy_des = self.sim_config.constant_velocity_disturbance * np.array([np.cos(direction), np.sin(direction)])
+            self.environment._robot_system.constant_velocity_disturber.set_constant_velocity_disturbance(v_xy_des)
+
         self.environment.reset(
             self.sim_config.default_joint_positions,
             slider_pose,
@@ -431,24 +423,6 @@ class SimSimEval:
 
     def get_robot_joint_angles(self):
         return self.plant.GetPositions(self.mbp_context, self.robot_model_instance)
-
-    def get_pusher_goal_polyhedron(self, dataset_path):
-        root = zarr.open(dataset_path, mode="r")
-        indices = np.array(root["meta/episode_ends"]) - 1
-        state = np.array(root["data/state"])
-        final_positions = state[indices][:, :2]
-        return HPolyhedron(VPolytope(final_positions.transpose()))
-
-    def get_slider_goal_polyhedron(self, dataset_path):
-        root = zarr.open(dataset_path, mode="r")
-        indices = np.array(root["meta/episode_ends"]) - 1
-        state = np.array(root["data/slider_state"])
-        final_states = state[indices]
-        return HPolyhedron(VPolytope(final_states.transpose()))
-
-    def is_contained(self, point, polyhedron):
-        A, b = polyhedron.A(), polyhedron.b()
-        return np.all(A @ point <= b)
 
     # Logging infrastructure
     def save_log(self, log_name, start_time, end_time=None):

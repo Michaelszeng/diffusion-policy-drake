@@ -28,12 +28,14 @@ from planning_through_contact.simulation.sim_utils import (
     randomize_pusher,
     randomize_table,
 )
+from planning_through_contact.simulation.systems.constant_velocity_disturber import ConstantVelocityDisturber
 from planning_through_contact.simulation.systems.iiwa_planner import IiwaPlanner
 from planning_through_contact.simulation.systems.joint_velocity_clamp import JointVelocityClamp
 from planning_through_contact.simulation.systems.planar_translation_to_rigid_transform_system import (
     PlanarTranslationToRigidTransformSystem,
 )
 from planning_through_contact.simulation.systems.run_flag_system import RunFlagSystem
+from planning_through_contact.simulation.systems.success_checker import SuccessChecker
 
 from .robot_system_base import RobotSystemBase
 
@@ -130,6 +132,34 @@ class IiwaHardwareStation(RobotSystemBase):
             self._scene_graph = self.station.scene_graph()
             self.slider = external_mbp.GetModelInstanceByName(sim_config.slider.name)
 
+            # Connect velocity disturbance controller if enabled
+            if sim_config.constant_velocity_disturbance > 0.0:
+                self.constant_velocity_disturber = builder.AddSystem(
+                    ConstantVelocityDisturber(
+                        plant=external_mbp,
+                        body_index=external_mbp.GetBodyByName(sim_config.slider.name).index(),
+                        Kp=sim_config.constant_velocity_disturbance_Kp,
+                        Kd=sim_config.constant_velocity_disturbance_Kd,
+                    ),
+                )
+
+                # Add success checker to disable disturbance when goal is reached
+                # SuccessChecker will automatically determine mode and load convex hulls if needed
+                self.success_checker = builder.AddSystem(
+                    SuccessChecker(
+                        plant=external_mbp,
+                        slider_model_instance=self.slider,
+                        pusher_body_index=external_mbp.GetBodyByName("pusher").index(),
+                        slider_goal_pose=sim_config.slider_goal_pose,
+                        pusher_goal_pose=sim_config.pusher_start_pose,
+                        sim_config=sim_config,
+                        trans_tol=sim_config.multi_run_config.trans_tol,
+                        rot_tol=sim_config.multi_run_config.rot_tol,
+                        evaluate_final_slider_rotation=True,
+                        evaluate_final_pusher_position=True,
+                    )
+                )
+
         # Iiwa Planner state machine
         INITIAL_DELAY = 0.5  # Delay between starting simulation and iiwa starting to go to home position
         WAIT_PUSH_DELAY = 1.0  # Delay between iiwa reaching home position and pusher starting to follow pushing traj
@@ -190,7 +220,7 @@ class IiwaHardwareStation(RobotSystemBase):
 
         # Switch for switching between planner output (for GoPushStart), and diff IK output (for pushing)
         switch = builder.AddNamedSystem("switch", PortSwitch(robot.num_positions()))
-        run_flag_system = builder.AddSystem(RunFlagSystem(true_port_index=2))
+        run_flag_system = builder.AddSystem(RunFlagSystem(true_port_index=2))  # RunFlagSystem outputs 1 if PUSHING mode
 
         # Iiwa state estimated multiplexer ; separate estimated state to position and velocity
         if isinstance(driver_config, IiwaDriver):
@@ -349,6 +379,30 @@ class IiwaHardwareStation(RobotSystemBase):
                 self.station.GetOutputPort(f"{sim_config.slider.name}_state"),
                 "object_state_measured",
             )
+
+            # Connections to velocity disturbance controller
+            if sim_config.constant_velocity_disturbance > 0.0:
+                builder.Connect(
+                    run_flag_system.get_output_port(),
+                    self.constant_velocity_disturber.GetInputPort("enable"),
+                )
+                builder.Connect(
+                    self.station.GetOutputPort("state"),
+                    self.constant_velocity_disturber.GetInputPort("x_plant"),
+                )
+                # Connect success checker
+                builder.Connect(
+                    self.station.GetOutputPort("state"),
+                    self.success_checker.GetInputPort("x_plant"),
+                )
+                builder.Connect(
+                    self.success_checker.GetOutputPort("success"),
+                    self.constant_velocity_disturber.GetInputPort("success"),
+                )
+                builder.Connect(
+                    self.constant_velocity_disturber.get_output_port(),
+                    self.station.GetInputPort("applied_spatial_force"),
+                )
 
         if sim_config.camera_configs:
             for camera_config in self._sim_config.camera_configs:
