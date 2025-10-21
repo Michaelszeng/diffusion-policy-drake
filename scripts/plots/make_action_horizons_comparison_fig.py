@@ -48,17 +48,29 @@ from matplotlib.ticker import ScalarFormatter
 NAVY = "#1f3b6f"
 GRID_COLOR = "#bdbdbd"
 # Color palette for multiple experiments
-COLOR_PALETTE = [
-    "#1f3b6f",  # Navy (original)
-    "#d62728",  # Red
-    "#2ca02c",  # Green
-    "#ff7f0e",  # Orange
-    "#9467bd",  # Purple
-    "#8c564b",  # Brown
-    "#e377c2",  # Pink
-    "#17becf",  # Cyan
-]
+# COLOR_PALETTE = [
+#     "#1f3b6f",  # Navy (original)
+#     "#d62728",  # Red
+#     "#2ca02c",  # Green
+#     "#ff7f0e",  # Orange
+#     "#9467bd",  # Purple
+#     "#8c564b",  # Brown
+#     "#e377c2",  # Pink
+#     "#17becf",  # Cyan
+# ]
 
+COLOR_PALETTE = [
+    "#2ca02c",  # Green
+    # "#5cb830",  # Yellow-green
+    # "#8bcf34",  # Lime
+    "#bae738",  # Yellow-lime
+    # "#e8ff3c",  # Yellow
+    # "#ffc940",  # Orange-yellow
+    "#ff9344",  # Orange
+    # "#ff5d48",  # Red-orange
+    # "#ff274c",  # Red-pink
+    "#d62728",  # Red
+]
 
 @dataclass
 class HorizonResult:
@@ -215,7 +227,7 @@ def make_plot(
     Returns:
         Figure object
     """
-    fig, ax = plt.subplots(figsize=(3.4, 3.2))
+    fig, ax = plt.subplots(figsize=(6.0, 4.0))
     ax.set_facecolor("white")
 
     # Collect all unique horizons across all experiments for x-axis
@@ -248,11 +260,11 @@ def make_plot(
             horizons,
             success_rates,
             color=color,
-            linewidth=2.5,
+            linewidth=1.5,
             marker="o",
-            markersize=7,
+            markersize=4,
             markeredgecolor="white",
-            markeredgewidth=1.2,
+            markeredgewidth=0.8,
             label=experiment_name,
             zorder=3,
         )
