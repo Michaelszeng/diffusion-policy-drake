@@ -1,3 +1,5 @@
+from collections import deque
+
 import numpy as np
 from pydrake.all import (
     AbstractValue,
@@ -23,9 +25,11 @@ class ConstantVelocityDisturber(LeafSystem):
       body_index: the body to disturb (e.g., plant.GetBodyByName("tee").index())
       Kp, Kd: gains on velocity error (units: N·s/m for linear part)
       force_cap: optional clamp on max planar force magnitude
+
+    Note: DO NOT increase force_cap beyond 1.0. This makes the pushing dynamics against the iiwa weird.
     """
 
-    def __init__(self, plant, body_index, Kp=60.0, Kd=5.0, force_cap=0.5):
+    def __init__(self, plant, body_index, Kp=60.0, Kd=5.0, force_cap=1.0, velocity_window_size=5):
         super().__init__()
         self._plant = plant
         self._context_plant = plant.CreateDefaultContext()  # scratch for evals if needed
@@ -35,6 +39,9 @@ class ConstantVelocityDisturber(LeafSystem):
         self._force_cap = force_cap
         self._v_xy_des = np.array([0.0, 0.0])  # Initialze to 0
         self._success_printed = False  # Track whether we've printed the success message
+        self._window_size = velocity_window_size
+        # Velocity history buffer for moving average smoothing
+        self._velocity_history = deque(maxlen=velocity_window_size)
 
         # Input port to enable/disable the velocity disturbance. This is controlled by whether the IiwaPlanner is in
         # PUSHING mode.
@@ -58,6 +65,25 @@ class ConstantVelocityDisturber(LeafSystem):
         """
         self._v_xy_des = np.asarray(v_xy_des).reshape(2)
 
+    def _get_smoothed_velocity(self, v_raw: np.ndarray) -> np.ndarray:
+        """
+        Apply moving average smoothing to velocity estimate.
+
+        Args:
+            v_raw: Raw velocity vector (3D)
+
+        Returns:
+            Smoothed velocity vector (3D)
+        """
+        self._velocity_history.append(v_raw.copy())
+        if len(self._velocity_history) > 0:
+            smoothed = np.mean(self._velocity_history, axis=0)
+            print(f"||v_WB_smooth||: {np.linalg.norm(smoothed):.4f}")
+            # print(f"||v_WB_raw||: {np.linalg.norm(v_raw):.4f}")
+            return smoothed
+        else:
+            return v_raw
+
     def _CalcForces(self, context, output):
         enabled = self._enable_in.Eval(context)[0]
         success = self._success_in.Eval(context)[0]
@@ -79,7 +105,8 @@ class ConstantVelocityDisturber(LeafSystem):
         V_WB = self._plant.EvalBodySpatialVelocityInWorld(
             self._context_plant, self._plant.get_body(self._body_index)
         )  # SpatialVelocity
-        v_WB = V_WB.translational()  # 3d np.array
+        v_WB_raw = V_WB.translational()  # 3d np.array
+        v_WB = self._get_smoothed_velocity(v_WB_raw)  # moving average smoothed
 
         # Desired twist: planar linear velocity, no angular velocity target.
         v_des = np.array([self._v_xy_des[0], self._v_xy_des[1], 0.0])
@@ -88,16 +115,29 @@ class ConstantVelocityDisturber(LeafSystem):
         ev = v_des - v_WB
 
         # Simple PD on velocity (linear part only by default; set torque=0)
-        # If you want to also damp spin, you can give angular gains below.
         F_planar = self._Kp * ev + self._Kd * (-v_WB)  # crude damping around 0
         F_W = np.array([F_planar[0], F_planar[1], 0.0])
         tau_W = np.zeros(3)
+
+        # Project force onto desired velocity direction (zero if opposing)
+        v_des_norm = np.linalg.norm(v_des)
+        if v_des_norm > 1e-12:
+            force_dot_vdes = np.dot(F_W, v_des)
+            if force_dot_vdes > 0:
+                # Keep only component in direction of desired velocity
+                F_W = (force_dot_vdes / (v_des_norm**2)) * v_des
+            else:
+                # Force opposes or is perpendicular - zero it
+                F_W = np.zeros(3)
 
         # Optional clamp to avoid blowing up the contact solver
         if self._force_cap is not None:
             norm = np.linalg.norm(F_W[:2])
             if norm > self._force_cap and norm > 1e-12:
                 F_W[:2] *= self._force_cap / norm
+                print(f"Clamped force: {norm}")
+            else:
+                print(f"Applied force: {norm}")
 
         # Apply force at body origin Bo, expressed in world
         sf = ExternallyAppliedSpatialForce_[float]()
