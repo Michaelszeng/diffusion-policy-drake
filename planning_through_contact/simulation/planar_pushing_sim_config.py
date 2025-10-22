@@ -130,6 +130,9 @@ class PlanarPushingSimConfig:
     # PD gains for constant velocity disturbance controller
     constant_velocity_disturbance_Kp: float = 60.0
     constant_velocity_disturbance_Kd: float = 5.0
+    constant_velocity_disturbance_force_cap: float = 1.0
+    constant_velocity_disturbance_velocity_window_size: int = 5
+    constant_velocity_disturbance_tune_mode: bool = False
 
     @classmethod
     def from_yaml(cls, cfg: OmegaConf):
@@ -198,6 +201,11 @@ class PlanarPushingSimConfig:
             constant_velocity_disturbance=cfg.constant_velocity_disturbance,
             constant_velocity_disturbance_Kp=cfg.get("constant_velocity_disturbance_Kp", 60.0),
             constant_velocity_disturbance_Kd=cfg.get("constant_velocity_disturbance_Kd", 5.0),
+            constant_velocity_disturbance_force_cap=cfg.get("constant_velocity_disturbance_force_cap", 1.0),
+            constant_velocity_disturbance_velocity_window_size=cfg.get(
+                "constant_velocity_disturbance_velocity_window_size", 5
+            ),
+            constant_velocity_disturbance_tune_mode=cfg.get("constant_velocity_disturbance_tune_mode", False),
         )
 
         # Optional fields
@@ -358,4 +366,8 @@ class PlanarPushingSimConfig:
             and self.constant_velocity_disturbance == other.constant_velocity_disturbance
             and self.constant_velocity_disturbance_Kp == other.constant_velocity_disturbance_Kp
             and self.constant_velocity_disturbance_Kd == other.constant_velocity_disturbance_Kd
+            and self.constant_velocity_disturbance_force_cap == other.constant_velocity_disturbance_force_cap
+            and self.constant_velocity_disturbance_velocity_window_size
+            == other.constant_velocity_disturbance_velocity_window_size
+            and self.constant_velocity_disturbance_tune_mode == other.constant_velocity_disturbance_tune_mode
         )

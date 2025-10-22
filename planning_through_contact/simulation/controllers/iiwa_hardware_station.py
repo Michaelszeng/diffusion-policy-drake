@@ -140,6 +140,9 @@ class IiwaHardwareStation(RobotSystemBase):
                         body_index=external_mbp.GetBodyByName(sim_config.slider.name).index(),
                         Kp=sim_config.constant_velocity_disturbance_Kp,
                         Kd=sim_config.constant_velocity_disturbance_Kd,
+                        force_cap=sim_config.constant_velocity_disturbance_force_cap,
+                        velocity_window_size=sim_config.constant_velocity_disturbance_velocity_window_size,
+                        tune_mode=sim_config.constant_velocity_disturbance_tune_mode,
                     ),
                 )
 

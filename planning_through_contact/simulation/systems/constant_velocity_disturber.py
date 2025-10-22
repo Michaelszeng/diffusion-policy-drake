@@ -25,11 +25,13 @@ class ConstantVelocityDisturber(LeafSystem):
       body_index: the body to disturb (e.g., plant.GetBodyByName("tee").index())
       Kp, Kd: gains on velocity error (units: N·s/m for linear part)
       force_cap: optional clamp on max planar force magnitude
+      velocity_window_size: moving average window size for velocity smoothing
+      tune_mode: if True, will print debug information like to help tune the controller
 
     Note: DO NOT increase force_cap beyond 1.0. This makes the pushing dynamics against the iiwa weird.
     """
 
-    def __init__(self, plant, body_index, Kp=60.0, Kd=5.0, force_cap=1.0, velocity_window_size=5):
+    def __init__(self, plant, body_index, Kp=60.0, Kd=5.0, force_cap=1.0, velocity_window_size=5, tune_mode=False):
         super().__init__()
         self._plant = plant
         self._context_plant = plant.CreateDefaultContext()  # scratch for evals if needed
@@ -40,6 +42,7 @@ class ConstantVelocityDisturber(LeafSystem):
         self._v_xy_des = np.array([0.0, 0.0])  # Initialze to 0
         self._success_printed = False  # Track whether we've printed the success message
         self._window_size = velocity_window_size
+        self._tune_mode = tune_mode
         # Velocity history buffer for moving average smoothing
         self._velocity_history = deque(maxlen=velocity_window_size)
 
@@ -78,7 +81,8 @@ class ConstantVelocityDisturber(LeafSystem):
         self._velocity_history.append(v_raw.copy())
         if len(self._velocity_history) > 0:
             smoothed = np.mean(self._velocity_history, axis=0)
-            print(f"||v_WB_smooth||: {np.linalg.norm(smoothed):.4f}")
+            if self._tune_mode:
+                print(f"||v_WB_smooth||: {np.linalg.norm(smoothed):.4f}")
             # print(f"||v_WB_raw||: {np.linalg.norm(v_raw):.4f}")
             return smoothed
         else:
@@ -135,9 +139,11 @@ class ConstantVelocityDisturber(LeafSystem):
             norm = np.linalg.norm(F_W[:2])
             if norm > self._force_cap and norm > 1e-12:
                 F_W[:2] *= self._force_cap / norm
-                print(f"Clamped force: {norm}")
+                if self._tune_mode:
+                    print(f"Clamped force: {norm}")
             else:
-                print(f"Applied force: {norm}")
+                if self._tune_mode:
+                    print(f"Applied force: {norm}")
 
         # Apply force at body origin Bo, expressed in world
         sf = ExternallyAppliedSpatialForce_[float]()
