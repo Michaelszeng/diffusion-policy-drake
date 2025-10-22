@@ -7,19 +7,23 @@ meshcat_port: 7001
 ########################################################################################################################
 ### Test Disturbances
 ########################################################################################################################
-# constant_velocity_disturbance: 0.00  # m/s (just magnitude; direction is random)
+# constant_velocity_disturbance: 0.00  # m/s (just magnitude; direction is random
 
-constant_velocity_disturbance: 0.01  # m/s (just magnitude; direction is random)
-constant_velocity_disturbance_Kp: 60.0  # PD gain Kp for constant velocity disturbance (N·s/m)
+constant_velocity_disturbance: 0.005  # m/s (just magnitude; direction is random)
+constant_velocity_disturbance_Kp: 200.0  # PD gain Kp for constant velocity disturbance (N·s/m)
 constant_velocity_disturbance_Kd: 5.0   # PD gain Kd for constant velocity disturbance (N·s/m)
 
-# constant_velocity_disturbance: 0.02  # m/s (just magnitude; direction is random)
-# constant_velocity_disturbance_Kp: 40.0  # PD gain Kp for constant velocity disturbance (N·s/m)
-# constant_velocity_disturbance_Kd: 5.0   # PD gain Kd for constant velocity disturbance (N·s/m)
+# constant_velocity_disturbance: 0.01  # m/s (just magnitude; direction is random)
+# constant_velocity_disturbance_Kp: 150.0  # PD gain Kp for constant velocity disturbance (N·s/m)
+# constant_velocity_disturbance_Kd: 8.0   # PD gain Kd for constant velocity disturbance (N·s/m)
 
-# constant_velocity_disturbance: 0.03  # m/s (just magnitude; direction is random)
-# constant_velocity_disturbance_Kp: 20.0  # PD gain Kp for constant velocity disturbance (N·s/m)
-# constant_velocity_disturbance_Kd: 5.0   # PD gain Kd for constant velocity disturbance (N·s/m)
+# constant_velocity_disturbance: 0.015  # m/s (just magnitude; direction is random)
+# constant_velocity_disturbance_Kp: 150.0  # PD gain Kp for constant velocity disturbance (N·s/m)
+# constant_velocity_disturbance_Kd: 10.0   # PD gain Kd for constant velocity disturbance (N·s/m)
+
+# constant_velocity_disturbance: 0.02  # m/s (just magnitude; direction is random)
+# constant_velocity_disturbance_Kp: 200.0  # PD gain Kp for constant velocity disturbance (N·s/m)
+# constant_velocity_disturbance_Kd: 10.0   # PD gain Kd for constant velocity disturbance (N·s/m)
 
 ########################################################################################################################
 ### PlanarPushingSimConfig
@@ -73,7 +77,7 @@ diffusion_policy_config:
   debug: false
   device: 'cuda:0'
   cfg_overrides:
-    n_action_steps: 2
+    n_action_steps: 8
 use_hardware: false
 pusher_z_offset: 0.015
 camera_configs:
