@@ -7,14 +7,14 @@ meshcat_port: 7000
 ########################################################################################################################
 ### Test Disturbances
 ########################################################################################################################
-# constant_velocity_disturbance: 0.00  # m/s (just magnitude; direction is random
+constant_velocity_disturbance: 0.00  # m/s (just magnitude; direction is random
 
-constant_velocity_disturbance: 0.005  # m/s (just magnitude; direction is random)
-constant_velocity_disturbance_Kp: 200.0  # PD gain Kp for constant velocity disturbance (N·s/m)
-constant_velocity_disturbance_Kd: 5.0   # PD gain Kd for constant velocity disturbance (N·s/m)
-constant_velocity_disturbance_force_cap: 1.0  # Maximum force magnitude in N
-constant_velocity_disturbance_velocity_window_size: 5  # Moving average window size for velocity smoothing
-constant_velocity_disturbance_tune_mode: false  # If true, prints debug info for tuning
+# constant_velocity_disturbance: 0.005  # m/s (just magnitude; direction is random)
+# constant_velocity_disturbance_Kp: 200.0  # PD gain Kp for constant velocity disturbance (N·s/m)
+# constant_velocity_disturbance_Kd: 5.0   # PD gain Kd for constant velocity disturbance (N·s/m)
+# constant_velocity_disturbance_force_cap: 1.0  # Maximum force magnitude in N
+# constant_velocity_disturbance_velocity_window_size: 5  # Moving average window size for velocity smoothing
+# constant_velocity_disturbance_tune_mode: false  # If true, prints debug info for tuning
 
 # constant_velocity_disturbance: 0.0075  # m/s (just magnitude; direction is random)
 # constant_velocity_disturbance_Kp: 175.0  # PD gain Kp for constant velocity disturbance (N·s/m)
