@@ -33,182 +33,33 @@ Notes:
 
 from __future__ import annotations
 
-import argparse
 import math
-import pickle
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence
+from typing import List, Optional, Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
 import statsmodels.stats.proportion as smp
 from matplotlib.ticker import ScalarFormatter
 
-NAVY = "#1f3b6f"
-GRID_COLOR = "#bdbdbd"
-# Color palette for multiple experiments
-# COLOR_PALETTE = [
-#     "#1f3b6f",  # Navy (original)
-#     "#d62728",  # Red
-#     "#2ca02c",  # Green
-#     "#ff7f0e",  # Orange
-#     "#9467bd",  # Purple
-#     "#8c564b",  # Brown
-#     "#e377c2",  # Pink
-#     "#17becf",  # Cyan
-# ]
+from plotting_utils import (
+    GRID_COLOR,
+    NAVY,
+    parse_args,
+    HorizonResult,
+    collect_best_results,
+    generate_color_palette,
+)
 
-COLOR_PALETTE = [
-    "#2ca02c",  # Green
-    # "#5cb830",  # Yellow-green
-    # "#8bcf34",  # Lime
-    "#bae738",  # Yellow-lime
-    # "#e8ff3c",  # Yellow
-    # "#ffc940",  # Orange-yellow
-    "#ff9344",  # Orange
-    # "#ff5d48",  # Red-orange
-    # "#ff274c",  # Red-pink
-    "#d62728",  # Red
-]
+# Note: the original script defined its own colour constants and helper functions.
+# Those have been moved to 'plotting_utils' to avoid duplication.
 
-@dataclass
-class HorizonResult:
-    horizon: float
-    success_rate: float
-    num_trials: int
-    checkpoint_dir: Path
+# -----------------------------------------------------------------------------
+# The HorizonResult dataclass is now imported from plotting_utils
+# -----------------------------------------------------------------------------
 
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=("Create a success-rate vs. action-horizon plot using evaluation summaries.")
-    )
-    parser.add_argument(
-        "--experiment-path",
-        type=Path,
-        nargs='+',
-        default=[Path("eval/sim_sim/baseline")],
-        help=("Path(s) to experiment directories that contain T_a_<horizon> sub-folders. "
-              "Can specify multiple paths to overlay multiple experiments."),
-    )
-    parser.add_argument(
-        "--experiment-name",
-        type=str,
-        nargs='+',
-        default=None,
-        help=("Name(s) of the experiment(s) for the legend labels. "
-              "If not provided, labels will be derived from directory names. "
-              "Number of names should match number of experiment paths."),
-    )
-    parser.add_argument(
-        "--plot-name",
-        type=str,
-        default=None,
-        help=("Name for the plot title. "
-              "If not provided, defaults to 'Action Horizon Comparison' for multiple experiments "
-              "or 'Action Horizon: <experiment_name>' for single experiment."),
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=None,
-        help="Optional path to save the figure (PNG, PDF, etc.).",
-    )
-    parser.add_argument(
-        "--show",
-        action="store_true",
-        help="Display the figure in an interactive window after saving",
-    )
-    parser.add_argument(
-        "--dpi",
-        type=int,
-        default=300,
-        help="Figure DPI when saving to disk.",
-    )
-    return parser.parse_args()
-
-
-def iter_action_horizon_dirs(experiment_path: Path) -> Iterable[Path]:
-    for candidate in sorted(experiment_path.iterdir()):
-        if candidate.is_dir() and candidate.name.startswith("T_a_"):
-            yield candidate
-
-
-def parse_horizon_from_dirname(dirname: str) -> float:
-    _, _, value = dirname.partition("T_a_")
-    try:
-        return float(value)
-    except ValueError as err:
-        raise ValueError(f"Could not parse horizon from '{dirname}'.") from err
-
-
-def load_success_rate(summary_path: Path) -> tuple[float, int]:
-    with summary_path.open("rb") as handle:
-        summary: Dict = pickle.load(handle)
-
-    trial_results: Sequence[str] = summary.get("trial_result", [])
-    if trial_results:
-        successes = sum(1 for result in trial_results if result == "success")
-        total = len(trial_results)
-    else:
-        successes = len(summary.get("successful_trials", []))
-        total = len(summary.get("final_error", []))
-
-    if total == 0:
-        return float("nan"), 0
-
-    return successes / total, total
-
-
-def find_best_checkpoint(horizon_dir: Path) -> Optional[HorizonResult]:
-    best_result: Optional[HorizonResult] = None
-
-    summary_paths = sorted(horizon_dir.glob("*/summary.pkl"))
-    for summary_path in summary_paths:
-        success_rate, total_trials = load_success_rate(summary_path)
-        if math.isnan(success_rate):
-            continue
-
-        checkpoint_dir = summary_path.parent
-        horizon_value = parse_horizon_from_dirname(horizon_dir.name)
-        candidate = HorizonResult(horizon_value, success_rate, total_trials, checkpoint_dir)
-
-        if best_result is None:
-            best_result = candidate
-            continue
-
-        if success_rate > best_result.success_rate + 1e-6:
-            best_result = candidate
-            continue
-
-        are_equal = math.isclose(success_rate, best_result.success_rate, rel_tol=1e-6)
-        if are_equal and total_trials > best_result.num_trials:
-            best_result = candidate
-            continue
-
-        if are_equal and best_result.checkpoint_dir.name != "latest.ckpt" and checkpoint_dir.name == "latest.ckpt":
-            best_result = candidate
-
-    return best_result
-
-
-def collect_best_results(experiment_path: Path) -> List[HorizonResult]:
-    if not experiment_path.exists():
-        raise FileNotFoundError(f"Experiment path '{experiment_path}' does not exist.")
-
-    results: List[HorizonResult] = []
-    for horizon_dir in iter_action_horizon_dirs(experiment_path):
-        best = find_best_checkpoint(horizon_dir)
-        if best is None:
-            print(f"Skipping {horizon_dir} (no valid summary.pkl found).")
-            continue
-        results.append(best)
-
-    results.sort(key=lambda res: res.horizon)
-    return results
-
-
+# The helper functions iter_action_horizon_dirs, parse_horizon_from_dirname, ...
+# have been removed from this file and are now imported above.
 
 
 def make_plot(
@@ -290,9 +141,9 @@ def make_plot(
         ax.set_xticks(all_horizons)
         ax.set_xticklabels([str(int(val)) if float(val).is_integer() else f"{val:g}" for val in all_horizons])
 
-    y_min = 0.6
-    ax.set_ylim(y_min, 1.0)
-    ax.set_yticks(np.linspace(y_min, 1.0, 6))
+    # y_min = 0.35
+    # ax.set_ylim(y_min, 1.0)
+    # ax.set_yticks(np.linspace(y_min, 1.0, 6))
 
     # Set title
     if plot_name is not None:
@@ -327,7 +178,8 @@ def make_plot(
 
 
 def main() -> None:
-    args = parse_args()
+    description = "Create a success-rate comparison plot across action horizons using evaluation summaries."
+    args = parse_args(description)
     
     # Handle experiment paths
     experiment_paths = args.experiment_path if isinstance(args.experiment_path, list) else [args.experiment_path]
@@ -345,6 +197,13 @@ def main() -> None:
     
     # Collect results for each experiment
     experiments: List[tuple[str, Sequence[HorizonResult], str]] = []
+    
+    # Use appropriate color palette based on number of experiments
+    if len(experiment_paths) == 1:  # Use Navy if there is only one experiment
+        color_palette = [NAVY]
+    else:
+        color_palette = generate_color_palette(len(experiment_paths))
+    
     for idx, (exp_path, exp_label) in enumerate(zip(experiment_paths, experiment_labels)):
         results = collect_best_results(exp_path)
         if not results:
@@ -352,7 +211,7 @@ def main() -> None:
             continue
         
         # Assign color from palette (cycle if more experiments than colors)
-        color = COLOR_PALETTE[idx % len(COLOR_PALETTE)]
+        color = color_palette[idx % len(color_palette)]
         experiments.append((exp_label, results, color))
         
         print(f"\n{exp_label} - Best checkpoints per horizon:")
