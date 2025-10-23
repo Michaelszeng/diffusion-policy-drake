@@ -122,6 +122,8 @@ checkpoint_path,run_dir,config_name,overrides
 /path/to/checkpoint,eval/output,gamepad_teleop_carbon.yaml,diffusion_policy_config.cfg_overrides.n_action_steps=4
 ```
 
+Add a `+` before the override if the config doesn't already exist in base yaml config file.
+
 #### Multiple Overrides (Space-separated)
 
 ```csv
