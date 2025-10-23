@@ -28,10 +28,10 @@ class ConstantVelocityDisturber(LeafSystem):
       velocity_window_size: moving average window size for velocity smoothing
       tune_mode: if True, will print debug information like to help tune the controller
 
-    Note: DO NOT increase force_cap beyond 1.0. This makes the pushing dynamics against the iiwa weird.
+    Note: DO NOT increase force_cap beyond the default value. This makes the pushing dynamics against the iiwa weird.
     """
 
-    def __init__(self, plant, body_index, Kp=60.0, Kd=5.0, force_cap=1.0, velocity_window_size=5, tune_mode=False):
+    def __init__(self, plant, body_index, Kp=60.0, Kd=5.0, force_cap=0.85, velocity_window_size=5, tune_mode=False):
         super().__init__()
         self._plant = plant
         self._context_plant = plant.CreateDefaultContext()  # scratch for evals if needed
@@ -122,17 +122,6 @@ class ConstantVelocityDisturber(LeafSystem):
         F_planar = self._Kp * ev + self._Kd * (-v_WB)  # crude damping around 0
         F_W = np.array([F_planar[0], F_planar[1], 0.0])
         tau_W = np.zeros(3)
-
-        # Project force onto desired velocity direction (zero if opposing)
-        v_des_norm = np.linalg.norm(v_des)
-        if v_des_norm > 1e-12:
-            force_dot_vdes = np.dot(F_W, v_des)
-            if force_dot_vdes > 0:
-                # Keep only component in direction of desired velocity
-                F_W = (force_dot_vdes / (v_des_norm**2)) * v_des
-            else:
-                # Force opposes or is perpendicular - zero it
-                F_W = np.zeros(3)
 
         # Optional clamp to avoid blowing up the contact solver
         if self._force_cap is not None:
