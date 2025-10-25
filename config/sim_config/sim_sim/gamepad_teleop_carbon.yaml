@@ -42,8 +42,29 @@ meshcat_port: 7000
 # constant_velocity_disturbance_velocity_window_size: 5  # Moving average window size for velocity smoothing
 # constant_velocity_disturbance_tune_mode: true  # If true, prints debug info for tuning
 
+# constant_velocity_disturbance: 0.0125  # m/s (just magnitude; direction is random)
+# constant_velocity_disturbance_Kp: 150.0  # PD gain Kp for constant velocity disturbance (N·s/m)
+# constant_velocity_disturbance_Kd: 9.0   # PD gain Kd for constant velocity disturbance (N·s/m)
+# constant_velocity_disturbance_force_cap: 0.85  # Maximum force magnitude in N
+# constant_velocity_disturbance_velocity_window_size: 5  # Moving average window size for velocity smoothing
+# constant_velocity_disturbance_tune_mode: true  # If true, prints debug info for tuning
+
 # constant_velocity_disturbance: 0.015  # m/s (just magnitude; direction is random)
 # constant_velocity_disturbance_Kp: 150.0  # PD gain Kp for constant velocity disturbance (N·s/m)
+# constant_velocity_disturbance_Kd: 10.0   # PD gain Kd for constant velocity disturbance (N·s/m)
+# constant_velocity_disturbance_force_cap: 0.85  # Maximum force magnitude in N
+# constant_velocity_disturbance_velocity_window_size: 5  # Moving average window size for velocity smoothing
+# constant_velocity_disturbance_tune_mode: true  # If true, prints debug info for tuning
+
+# constant_velocity_disturbance: 0.0175  # m/s (just magnitude; direction is random)
+# constant_velocity_disturbance_Kp: 135.0  # PD gain Kp for constant velocity disturbance (N·s/m)
+# constant_velocity_disturbance_Kd: 10.0   # PD gain Kd for constant velocity disturbance (N·s/m)
+# constant_velocity_disturbance_force_cap: 0.85  # Maximum force magnitude in N
+# constant_velocity_disturbance_velocity_window_size: 5  # Moving average window size for velocity smoothing
+# constant_velocity_disturbance_tune_mode: true  # If true, prints debug info for tuning
+
+# constant_velocity_disturbance: 0.02  # m/s (just magnitude; direction is random)
+# constant_velocity_disturbance_Kp: 125.0  # PD gain Kp for constant velocity disturbance (N·s/m)
 # constant_velocity_disturbance_Kd: 10.0   # PD gain Kd for constant velocity disturbance (N·s/m)
 # constant_velocity_disturbance_force_cap: 0.85  # Maximum force magnitude in N
 # constant_velocity_disturbance_velocity_window_size: 5  # Moving average window size for velocity smoothing
@@ -101,7 +122,7 @@ diffusion_policy_config:
   debug: false
   device: 'cuda:0'
   cfg_overrides:
-    n_action_steps: 8
+    n_action_steps: 2
 use_hardware: false
 pusher_z_offset: 0.015
 camera_configs:
