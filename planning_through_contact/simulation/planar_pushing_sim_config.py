@@ -198,7 +198,7 @@ class PlanarPushingSimConfig:
             slider_physical_properties=slider_physical_properties,
             arbitrary_shape_pickle_path=cfg.arbitrary_shape_pickle_path,
             arbitrary_shape_rgba=np.array(cfg.arbitrary_shape_rgba),
-            constant_velocity_disturbance=cfg.constant_velocity_disturbance,
+            constant_velocity_disturbance=cfg.get("constant_velocity_disturbance", 0.0),
             constant_velocity_disturbance_Kp=cfg.get("constant_velocity_disturbance_Kp", 60.0),
             constant_velocity_disturbance_Kd=cfg.get("constant_velocity_disturbance_Kd", 5.0),
             constant_velocity_disturbance_force_cap=cfg.get("constant_velocity_disturbance_force_cap", 0.85),

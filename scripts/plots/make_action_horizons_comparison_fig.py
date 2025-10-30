@@ -86,6 +86,14 @@ def make_plot(
     for _, results, _ in experiments:
         all_horizons.update(res.horizon for res in results)
     all_horizons = sorted(all_horizons)
+    
+    # Track checkpoints used at each horizon to determine if labels are needed
+    horizon_checkpoints = {}  # horizon -> set of checkpoint names
+    for _, results, _ in experiments:
+        for res in results:
+            if res.horizon not in horizon_checkpoints:
+                horizon_checkpoints[res.horizon] = set()
+            horizon_checkpoints[res.horizon].add(res.checkpoint_dir.name)
 
     # Plot each experiment
     for experiment_name, results, color in experiments:
@@ -133,6 +141,26 @@ def make_plot(
             alpha=0.9,
             zorder=2,
         )
+        
+        # Add checkpoint labels if multiple checkpoints are used at a given horizon
+        for res in results:
+            if len(horizon_checkpoints[res.horizon]) > 1:
+                # Truncate checkpoint name to first 10 chars
+                ckpt_name = res.checkpoint_dir.name
+                label_text = ckpt_name[:10] + "..." if len(ckpt_name) > 10 else ckpt_name
+                
+                # Position label slightly above the data point
+                ax.annotate(
+                    label_text,
+                    xy=(res.horizon, res.success_rate),
+                    xytext=(0, 5),  # 5 points above
+                    textcoords='offset points',
+                    fontsize=6,
+                    color=color,
+                    ha='center',
+                    va='bottom',
+                    alpha=0.8,
+                )
 
     ax.set_xscale("log", base=2)
     ax.xaxis.set_major_formatter(ScalarFormatter())
