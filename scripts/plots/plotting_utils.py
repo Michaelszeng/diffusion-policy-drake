@@ -62,6 +62,7 @@ class HorizonResult:
     success_rate: float
     num_trials: int
     checkpoint_dir: Path
+    num_checkpoints_available: int = 1  # Number of checkpoints evaluated for this horizon
 
 
 # -----------------------------------------------------------------------------
@@ -96,8 +97,8 @@ def parse_args(description: str) -> argparse.Namespace:
     parser.add_argument(
         "--plot-name",
         type=str,
-        default="Relative Action Horizon Performance",
-        help="Title for the plot (optional).",
+        default=None,
+        help="Title for the plot (optional). If not provided, auto-generates based on experiment name(s).",
     )
     parser.add_argument(
         "--output",
@@ -156,13 +157,20 @@ def find_best_checkpoint(horizon_dir: Path) -> Optional[HorizonResult]:
     """Return the *HorizonResult* corresponding to the best checkpoint in *horizon_dir*."""
 
     best_result: Optional[HorizonResult] = None
+    seen_checkpoints = set()  # Track unique checkpoint directories
 
-    for summary_path in sorted(horizon_dir.glob("*/summary.pkl")):
+    for summary_path in sorted(horizon_dir.glob("**/summary.pkl")):
         success_rate, total_trials = load_success_rate(summary_path)
         if math.isnan(success_rate):
             continue
 
-        checkpoint_dir = summary_path.parent
+        # Get the checkpoint directory name (first subdirectory under horizon_dir)
+        relative_path = summary_path.relative_to(horizon_dir)
+        checkpoint_dir = horizon_dir / relative_path.parts[0]
+        
+        # Track unique checkpoints
+        seen_checkpoints.add(checkpoint_dir.name)
+        
         horizon_value = parse_horizon_from_dirname(horizon_dir.name)
         candidate = HorizonResult(horizon_value, success_rate, total_trials, checkpoint_dir)
 
@@ -181,6 +189,10 @@ def find_best_checkpoint(horizon_dir: Path) -> Optional[HorizonResult]:
 
         if are_equal and best_result.checkpoint_dir.name != "latest.ckpt" and checkpoint_dir.name == "latest.ckpt":
             best_result = candidate
+
+    # Update the final count of checkpoints available
+    if best_result is not None:
+        best_result.num_checkpoints_available = len(seen_checkpoints)
 
     return best_result
 

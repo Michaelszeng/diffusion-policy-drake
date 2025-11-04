@@ -14,6 +14,7 @@ Example usage
 Single experiment:
    python scripts/plots/make_action_horizons_comparison_fig.py \
        --experiment-path eval/sim_sim/baseline \
+       --plot-name "Action Horizon Comparison" \
        --output outputs/action_horizon_success.png
 
 Multiple experiments with custom legend labels and title:
@@ -87,13 +88,8 @@ def make_plot(
         all_horizons.update(res.horizon for res in results)
     all_horizons = sorted(all_horizons)
     
-    # Track checkpoints used at each horizon to determine if labels are needed
-    horizon_checkpoints = {}  # horizon -> set of checkpoint names
-    for _, results, _ in experiments:
-        for res in results:
-            if res.horizon not in horizon_checkpoints:
-                horizon_checkpoints[res.horizon] = set()
-            horizon_checkpoints[res.horizon].add(res.checkpoint_dir.name)
+    # Determine if we should show checkpoint labels (only for single experiment plots)
+    show_checkpoint_labels = len(experiments) == 1
 
     # Plot each experiment
     for experiment_name, results, color in experiments:
@@ -142,25 +138,26 @@ def make_plot(
             zorder=2,
         )
         
-        # Add checkpoint labels if multiple checkpoints are used at a given horizon
-        for res in results:
-            if len(horizon_checkpoints[res.horizon]) > 1:
-                # Truncate checkpoint name to first 10 chars
-                ckpt_name = res.checkpoint_dir.name
-                label_text = ckpt_name[:10] + "..." if len(ckpt_name) > 10 else ckpt_name
-                
-                # Position label slightly above the data point
-                ax.annotate(
-                    label_text,
-                    xy=(res.horizon, res.success_rate),
-                    xytext=(0, 5),  # 5 points above
-                    textcoords='offset points',
-                    fontsize=6,
-                    color=color,
-                    ha='center',
-                    va='bottom',
-                    alpha=0.8,
-                )
+        # Add checkpoint labels if this is a single experiment and the horizon has multiple checkpoints
+        if show_checkpoint_labels:
+            for res in results:
+                if res.num_checkpoints_available > 1:
+                    # Truncate checkpoint name to first 10 chars
+                    ckpt_name = res.checkpoint_dir.name
+                    label_text = ckpt_name[:10] + "..." if len(ckpt_name) > 10 else ckpt_name
+                    
+                    # Position label slightly above the data point
+                    ax.annotate(
+                        label_text,
+                        xy=(res.horizon, res.success_rate),
+                        xytext=(0, 5),  # 5 points above
+                        textcoords='offset points',
+                        fontsize=6,
+                        color=color,
+                        ha='center',
+                        va='bottom',
+                        alpha=0.8,
+                    )
 
     ax.set_xscale("log", base=2)
     ax.xaxis.set_major_formatter(ScalarFormatter())
@@ -244,9 +241,10 @@ def main() -> None:
         
         print(f"\n{exp_label} - Best checkpoints per horizon:")
         for res in results:
+            ckpt_info = f" [{res.num_checkpoints_available} checkpoints available]" if res.num_checkpoints_available > 1 else ""
             print(
                 f"  Horizon {res.horizon:g}: success_rate={res.success_rate:.3f}"
-                f" ({res.num_trials} trials) -> {res.checkpoint_dir}"
+                f" ({res.num_trials} trials) -> {res.checkpoint_dir}{ckpt_info}"
             )
     
     if not experiments:
