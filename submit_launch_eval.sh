@@ -2,13 +2,11 @@
 
 # Usage
 # LLsub ./submit_launch_eval.sh -s 20 -g volta:1 -- config/all_action_horizons_launch_eval_supercloud.txt "50,100,350"
-# LLsub ./submit_launch_eval.sh -s 20 -g volta:1 -- config/all_action_horizons_launch_eval_supercloud.txt "50,100,350" 10 2 --resume
 # Parameters:
 #   $1: Config path (default: config/all_action_horizons_launch_eval_supercloud.txt)
 #   $2: Num trials, comma-separated (default: "45,55,100")
 #   $3: Concurrent jobs per GPU (default: 10)
 #   $4: Number of GPUs (default: 2)
-#   $5: Additional flags (e.g., --resume) (default: none)
 
 # Initialize and Load Modules
 echo "[submit_launch_eval.sh] Loading modules and virtual environment."
@@ -77,9 +75,6 @@ CONCURRENT_JOBS_PER_GPU="${3:-$DEFAULT_CONCURRENT_JOBS_PER_GPU}"
 DEFAULT_NUM_GPUS=2
 NUM_GPUS="${4:-$DEFAULT_NUM_GPUS}"
 
-# Accept additional flags like --resume
-ADDITIONAL_FLAGS="${5:-}"
-
 echo "[submit_launch_eval.sh] Running eval code..."
 echo "[submit_launch_eval.sh] Date: $DATE"
 echo "[submit_launch_eval.sh] Time: $TIME"
@@ -87,7 +82,6 @@ echo "[submit_launch_eval.sh] Config: $CONFIG_PATH"
 echo "[submit_launch_eval.sh] Num trials: $NUM_TRIALS"
 echo "[submit_launch_eval.sh] Concurrent jobs per GPU: $CONCURRENT_JOBS_PER_GPU"
 echo "[submit_launch_eval.sh] Number of GPUs to use: $NUM_GPUS"
-echo "[submit_launch_eval.sh] Additional flags: $ADDITIONAL_FLAGS"
 
 # -u option to unbuffer the stdout and stderr outputs
 python -u scripts/launch_eval.py \
@@ -96,5 +90,4 @@ python -u scripts/launch_eval.py \
     --num-gpus $NUM_GPUS \
     --num-trials-per-round $NUM_TRIALS \
     --drop-threshold 0.05 \
-    --non-interactive \
-    $ADDITIONAL_FLAGS
+    --force
