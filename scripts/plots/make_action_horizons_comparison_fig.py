@@ -49,6 +49,7 @@ from plotting_utils import (
     parse_args,
     HorizonResult,
     collect_best_results,
+    collect_all_checkpoint_results,
     generate_color_palette,
 )
 
@@ -79,7 +80,7 @@ def make_plot(
     Returns:
         Figure object
     """
-    fig, ax = plt.subplots(figsize=(6.0, 4.0))
+    fig, ax = plt.subplots(figsize=(10.0, 8.0))
     ax.set_facecolor("white")
 
     # Collect all unique horizons across all experiments for x-axis
@@ -223,29 +224,49 @@ def main() -> None:
     # Collect results for each experiment
     experiments: List[tuple[str, Sequence[HorizonResult], str]] = []
     
-    # Use appropriate color palette based on number of experiments
-    if len(experiment_paths) == 1:  # Use Navy if there is only one experiment
-        color_palette = [NAVY]
-    else:
-        color_palette = generate_color_palette(len(experiment_paths))
-    
-    for idx, (exp_path, exp_label) in enumerate(zip(experiment_paths, experiment_labels)):
-        results = collect_best_results(exp_path)
-        if not results:
-            print(f"Warning: No valid summary.pkl files found under {exp_path}. Skipping.")
-            continue
+    # Handle --all-checkpoints mode
+    if args.all_checkpoints:
+        if len(experiment_paths) > 1:
+            raise ValueError("--all-checkpoints is only supported for single experiment paths")
         
-        # Assign color from palette (cycle if more experiments than colors)
-        color = color_palette[idx % len(color_palette)]
-        experiments.append((exp_label, results, color))
+        exp_path = experiment_paths[0]
+        checkpoint_results = collect_all_checkpoint_results(exp_path)
         
-        print(f"\n{exp_label} - Best checkpoints per horizon:")
-        for res in results:
-            ckpt_info = f" [{res.num_checkpoints_available} checkpoints available]" if res.num_checkpoints_available > 1 else ""
-            print(
-                f"  Horizon {res.horizon:g}: success_rate={res.success_rate:.3f}"
-                f" ({res.num_trials} trials) -> {res.checkpoint_dir}{ckpt_info}"
-            )
+        if not checkpoint_results:
+            raise RuntimeError(f"No valid checkpoints found under {exp_path}.")
+        
+        color_palette = generate_color_palette(len(checkpoint_results))
+        
+        for idx, (checkpoint_name, results) in enumerate(sorted(checkpoint_results.items())):
+            color = color_palette[idx % len(color_palette)]
+            experiments.append((checkpoint_name, results, color))
+            
+            print(f"\n{checkpoint_name}:")
+            for res in results:
+                print(f"  Horizon {res.horizon:g}: success_rate={res.success_rate:.3f} ({res.num_trials} trials)")
+    else:  # Plot just the best checkpoint per action horizon
+        # Use appropriate color palette based on number of experiments
+        if len(experiment_paths) == 1:
+            color_palette = [NAVY]
+        else:
+            color_palette = generate_color_palette(len(experiment_paths))
+        
+        for idx, (exp_path, exp_label) in enumerate(zip(experiment_paths, experiment_labels)):
+            results = collect_best_results(exp_path)
+            if not results:
+                print(f"Warning: No valid summary.pkl files found under {exp_path}. Skipping.")
+                continue
+            
+            color = color_palette[idx % len(color_palette)]
+            experiments.append((exp_label, results, color))
+            
+            print(f"\n{exp_label} - Best checkpoints per horizon:")
+            for res in results:
+                ckpt_info = f" [{res.num_checkpoints_available} checkpoints available]" if res.num_checkpoints_available > 1 else ""
+                print(
+                    f"  Horizon {res.horizon:g}: success_rate={res.success_rate:.3f}"
+                    f" ({res.num_trials} trials) -> {res.checkpoint_dir}{ckpt_info}"
+                )
     
     if not experiments:
         raise RuntimeError("No valid experiments found to plot.")

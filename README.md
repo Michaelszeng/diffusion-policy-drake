@@ -64,7 +64,7 @@ source $(poetry env info --path)/bin/activate
 
 ### Supercloud Installation:
 ```bash
-module load anaconda/Python-ML-2024b  # This module contains a lot of the dependencies we need
+module load anaconda/Python-ML-2025a  # This module contains a lot of the dependencies we need
 # Now, we install the remaining dependencies we need
 pip install drake --no-deps  # TODO: instructions for local drake build?
 pip install manipulation==2025.1.3 --no-deps

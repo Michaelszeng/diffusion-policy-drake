@@ -97,8 +97,8 @@ def parse_args(description: str) -> argparse.Namespace:
     parser.add_argument(
         "--plot-name",
         type=str,
-        default=None,
-        help="Title for the plot (optional). If not provided, auto-generates based on experiment name(s).",
+        default="Relative Action Horizon Performance",
+        help="Title for the plot (optional).",
     )
     parser.add_argument(
         "--output",
@@ -112,6 +112,7 @@ def parse_args(description: str) -> argparse.Namespace:
         help="Display the figure in an interactive window after saving",
     )
     parser.add_argument("--dpi", type=int, default=300, help="Figure DPI when saving to disk.")
+    parser.add_argument("--all-checkpoints", action="store_true", help="Plot all checkpoints instead of just the best per horizon.")
     return parser.parse_args()
 
 
@@ -213,3 +214,36 @@ def collect_best_results(experiment_path: Path) -> List[HorizonResult]:
 
     results.sort(key=lambda res: res.horizon)
     return results
+
+
+def collect_all_checkpoint_results(experiment_path: Path) -> Dict[str, List[HorizonResult]]:
+    """Return all checkpoints grouped by checkpoint name across all horizons."""
+    
+    if not experiment_path.exists():
+        raise FileNotFoundError(f"Experiment path '{experiment_path}' does not exist.")
+    
+    checkpoint_results: Dict[str, List[HorizonResult]] = {}
+    
+    for horizon_dir in iter_action_horizon_dirs(experiment_path):
+        horizon_value = parse_horizon_from_dirname(horizon_dir.name)
+        
+        for summary_path in sorted(horizon_dir.glob("**/summary.pkl")):
+            success_rate, total_trials = load_success_rate(summary_path)
+            if math.isnan(success_rate):
+                continue
+            
+            relative_path = summary_path.relative_to(horizon_dir)
+            checkpoint_dir = horizon_dir / relative_path.parts[0]
+            checkpoint_name = checkpoint_dir.name
+            
+            result = HorizonResult(horizon_value, success_rate, total_trials, checkpoint_dir)
+            
+            if checkpoint_name not in checkpoint_results:
+                checkpoint_results[checkpoint_name] = []
+            checkpoint_results[checkpoint_name].append(result)
+    
+    # Sort each checkpoint's results by horizon
+    for results in checkpoint_results.values():
+        results.sort(key=lambda res: res.horizon)
+    
+    return checkpoint_results
