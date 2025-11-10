@@ -151,9 +151,14 @@ def parse_arguments():
         help="Threshold for dropping checkpoints (default: 0.05).",
     )
     parser.add_argument(
-        "--force",
+        "--non-interactive",
         action="store_true",
-        help="Skip confirmation prompts and automatically overwrite existing output directories.",
+        help="Skip confirmation prompts when overwriting existing output directories.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume jobs from existing run directories without deleting them.",
     )
     return parser.parse_args()
 
@@ -360,7 +365,7 @@ def run_simulation(job_config, job_number, total_jobs, round_number, total_round
         free_meshcat_port(meshcat_port)
 
 
-def validate_job_groups(job_groups, force=False):
+def validate_job_groups(job_groups, non_interactive=False, resume=False):
     if not job_groups:
         print("No valid jobs found in the CSV file. Please check the file.")
         return False
@@ -379,9 +384,18 @@ def validate_job_groups(job_groups, force=False):
         for _, job in group.items():
             output_dir = job.run_dir
             if os.path.exists(output_dir):
+                # If resume mode, keep existing directories to allow continuation
+                if resume:
+                    summary_path = os.path.join(output_dir, "summary.pkl")
+                    if os.path.exists(summary_path):
+                        print(f"Output dir '{output_dir}' exists with summary.pkl. Will resume from checkpoint.\n")
+                    else:
+                        raise FileNotFoundError(f"Cannot resume: summary.pkl not found in {output_dir}")
+                
+                # Otherwise, warn and potentially delete
                 print(f"Output dir '{output_dir}' already exists. Running this job will delete the existing contents.")
-                if force:
-                    print("--force flag set. Deleting output directory...\n")
+                if non_interactive:
+                    print("--non-interactive flag set. Deleting output directory...\n")
                     shutil.rmtree(output_dir)
                 else:
                     resp = input("Run job anyways? [y/n]: ")
@@ -554,7 +568,7 @@ def main():
 
     # 1 job group per line in csv file; each group contains all jobs corresponding to a single checkpoint
     job_groups = load_jobs_from_csv(csv_file)
-    if not validate_job_groups(job_groups, args.force):
+    if not validate_job_groups(job_groups, args.non_interactive, args.resume):
         return
 
     print_diagnostic_info(job_groups, max_concurrent_jobs_per_gpu, num_gpus, num_trials_per_round, drop_threshold)
@@ -590,7 +604,8 @@ def main():
         for job_config in jobs_to_run:
             job_config.num_trials = num_trails_in_round_i  # Set number of trials for this round
             job_config.seed = i  # Set seed to round number for reproducibility
-            job_config.continue_flag = i != 0  # Continue from previous results if not first round
+            job_config.continue_flag = args.resume or i != 0  # Continue from previous results if not first round or if
+                                                              # --resume flag is set
 
         # Execute jobs concurrently using ThreadPoolExecutor
         total_max_jobs = gpu_queue.get_total_max_jobs()

@@ -178,7 +178,7 @@ class SimSimEval:
         summary = {
             "successful_trials": [],
             "trial_times": [],
-            "initial_conditions": [self.get_slider_pose().vector()],
+            "initial_conditions": [],
             "final_error": [],
             "trial_result": [],
             "total_eval_sim_time": 0.0,
@@ -190,21 +190,66 @@ class SimSimEval:
             with open(os.path.join(self.output_dir, "summary.pkl"), "rb") as f:
                 summary = pickle.load(f)
 
-            # update prev_completed_trials, num_completed_trials
+            # Find the last trial with complete data (handle race condition from interrupted save)
+            n_trial_times = len(summary["trial_times"])
+            n_trial_results = len(summary["trial_result"])
+            n_final_errors = len(summary["final_error"])
+            n_initial_conditions = len(summary["initial_conditions"])
+            
+            # The number of complete trials is the minimum across all fields
+            # (initial_conditions should have N+1 for N trials)
+            n_complete_data_trials = min(n_trial_times, n_trial_results, n_final_errors)
+            n_complete_initial_conditions = n_initial_conditions
+            
+            # Check if we have incomplete data due to interrupted save
+            if not (n_trial_times == n_trial_results == n_final_errors):
+                print(f"⚠️  Detected incomplete trial data:")
+                print(f"   trial_times: {n_trial_times}, trial_result: {n_trial_results}, final_error: {n_final_errors}")
+                print(f"   Truncating to {n_complete_data_trials} complete trials")
+                
+                # Truncate to consistent state
+                summary["trial_times"] = summary["trial_times"][:n_complete_data_trials]
+                summary["trial_result"] = summary["trial_result"][:n_complete_data_trials]
+                summary["final_error"] = summary["final_error"][:n_complete_data_trials]
+                
+                # Rebuild successful_trials list based on truncated data
+                summary["successful_trials"] = [
+                    i for i in range(n_complete_data_trials) 
+                    if summary["trial_result"][i] == "success"
+                ]
+            
+            # Verify initial_conditions has correct length (should be N+1 for N trials)
+            if n_initial_conditions < n_complete_data_trials:
+                print(f"⚠️  initial_conditions has only {n_initial_conditions} entries for {n_complete_data_trials} trials")
+                print(f"   Cannot resume - missing initial conditions")
+                raise ValueError("Corrupted summary.pkl: insufficient initial_conditions")
+            elif n_initial_conditions > n_complete_data_trials + 1:
+                print(f"⚠️  initial_conditions has too many entries ({n_initial_conditions} for {n_complete_data_trials} trials)")
+                print(f"   Truncating to {n_complete_data_trials + 1} entries")
+                summary["initial_conditions"] = summary["initial_conditions"][:n_complete_data_trials + 1]
+            
             prev_completed_trials = len(summary["trial_times"])
             num_completed_trials = prev_completed_trials
-            summary["initial_conditions"].append(self.get_slider_pose().vector())
 
-            # Override existing summary.txt
+            # Recreate summary.txt from loaded data (creates file even if it didn't exist before)
             with open(os.path.join(self.output_dir, "summary.txt"), "w") as f:
-                for i in range(prev_completed_trials):
-                    self.update_summary(
-                        i,
-                        Result(summary["trial_result"][i]),
-                        summary["trial_times"][i],
-                        summary["initial_conditions"][i],
-                        summary["final_error"][i],
-                    )
+                pass  # Create/clear the file
+            
+            # Replay all completed trials to summary.txt
+            for i in range(prev_completed_trials):
+                self.update_summary(
+                    i,
+                    Result(summary["trial_result"][i]),
+                    summary["trial_times"][i],
+                    summary["initial_conditions"][i],
+                    summary["final_error"][i],
+                    summary=None,  # Don't save pkl during replay
+                )
+            
+            print(f"✓ Resuming from {prev_completed_trials} completed trials.")
+        else:
+            # Fresh start: capture initial pose for trial 0
+            summary["initial_conditions"].append(self.get_slider_pose().vector())
 
         # Simulate
         start_time = time.time()
@@ -227,35 +272,42 @@ class SimSimEval:
                 if success:
                     reset_environment = True
                     result = Result.SUCCESS
-                    summary["successful_trials"].append(num_completed_trials)
-                    summary["trial_result"].append(Result.SUCCESS.value)
-                    summary["trial_times"].append(self.get_trial_duration(t, last_reset_time))
+                    trial_time = self.get_trial_duration(t, last_reset_time)
                 # Check for failure
                 else:
                     failure, mode = self.check_failure(t, last_reset_time)
                     if failure:
                         reset_environment = True
-                        summary["trial_result"].append(mode.value)
                         result = mode
                         if mode == Result.TIMEOUT or mode == Result.MISSED_GOAL:
-                            summary["trial_times"].append(self.multi_run_config.max_attempt_duration)
+                            trial_time = self.multi_run_config.max_attempt_duration
                         else:
-                            summary["trial_times"].append(self.get_trial_duration(t, last_reset_time))
+                            trial_time = self.get_trial_duration(t, last_reset_time)
 
                 # Reset environment
                 if reset_environment:
                     # Print trial outcome
                     print_blue(f"Trial {num_completed_trials + 1}: {result.value}")
 
-                    # Logging
+                    # Collect all trial data first (before modifying summary)
                     final_error = self.get_final_error()
+                    initial_condition = summary["initial_conditions"][num_completed_trials]
+                    
+                    # Update summary atomically: all fields at once to minimize race condition window
+                    summary["trial_result"].append(result.value)
+                    summary["trial_times"].append(trial_time)
                     summary["final_error"].append(final_error)
+                    if result == Result.SUCCESS:
+                        summary["successful_trials"].append(num_completed_trials)
+                    
+                    # Save to files (summary.txt and summary.pkl)
                     self.update_summary(
                         num_completed_trials,
                         result,
-                        summary["trial_times"][-1],
-                        summary["initial_conditions"][-1],
+                        trial_time,
+                        initial_condition,
                         final_error,
+                        summary,
                     )
                     combined_logs = self.save_log(
                         f"combined_logs_{num_completed_trials}.pkl",
@@ -537,7 +589,8 @@ class SimSimEval:
         plt.savefig(filepath)
         plt.close()
 
-    def update_summary(self, trial_idx, result, trial_time, initial_conditions, final_error):
+    def update_summary(self, trial_idx, result, trial_time, initial_conditions, final_error, summary=None):
+        # Write trial details to summary.txt
         with open(os.path.join(self.output_dir, "summary.txt"), "a") as f:
             f.write(f"Trial {trial_idx + 1}\n")
             f.write("--------------------\n")
@@ -547,6 +600,18 @@ class SimSimEval:
             f.write(f"Final pusher error: {final_error['pusher_error']}\n")
             f.write(f"Final slider error: {final_error['slider_error']}\n")
             f.write("\n")
+        
+        # Write trial details to summary.pkl atomically (write to temp file, then rename)
+        if summary is not None:
+            summary_pkl_path = os.path.join(self.output_dir, "summary.pkl")
+            summary_pkl_temp = os.path.join(self.output_dir, "summary.pkl.tmp")
+            
+            # Write to temporary file first
+            with open(summary_pkl_temp, "wb") as f:
+                pickle.dump(summary, f)
+            
+            # Atomic rename (overwrites existing file)
+            os.replace(summary_pkl_temp, summary_pkl_path)
 
     def save_summary(self, summary):
         if len(summary["successful_trials"]) == 0:
@@ -566,9 +631,12 @@ class SimSimEval:
             average_successful_trans_error = f"{100 * average_succesful_trans_error:.2f}cm"
             average_successful_rot_error = f"{np.rad2deg(average_succesful_rot_error):.2f}°"
 
+        # Save summary.pkl atomically
         summary_path = os.path.join(self.output_dir, "summary.pkl")
-        with open(summary_path, "wb") as f:
+        summary_temp = os.path.join(self.output_dir, "summary.pkl.tmp")
+        with open(summary_temp, "wb") as f:
             pickle.dump(summary, f)
+        os.replace(summary_temp, summary_path)
 
         # Read the current content
         with open(os.path.join(self.output_dir, "summary.txt"), "r") as f:
