@@ -63,7 +63,8 @@ if [ ! -f "$CONFIG_PATH" ]; then
 fi
 
 # Accept comma-separated list (e.g. "50,100,350") and convert to space-separated
-DEFAULT_NUM_TRIALS="500"
+# DEFAULT_NUM_TRIALS="500"
+DEFAULT_NUM_TRIALS="100,100,300"
 # If the user supplied a second positional parameter, use it; otherwise use default
 RAW_NUM_TRIALS="${2:-$DEFAULT_NUM_TRIALS}"
 # Replace commas with spaces so that launch_eval.py receives a space-delimited list
