@@ -11,6 +11,9 @@ horizon and produces a figure with overlaid traces for multiple experiments.
 Example usage
 -------------
 
+If running on SuperCloud: first run:
+module load anaconda/Python-ML-2025a
+
 Single experiment:
    python scripts/plots/make_action_horizons_comparison_fig.py \
        --experiment-path eval/sim_sim/baseline \
@@ -30,6 +33,7 @@ Set --show to show the figure in an interactive window after saving.
 Notes:
 - --experiment-name is used for legend labels (optional, defaults to directory names)
 - --plot-name is used for the plot title (optional, defaults to auto-generated title)
+- --
 """
 
 from __future__ import annotations
@@ -80,7 +84,7 @@ def make_plot(
     Returns:
         Figure object
     """
-    fig, ax = plt.subplots(figsize=(10.0, 8.0))
+    fig, ax = plt.subplots(figsize=(5.0, 4.0))
     ax.set_facecolor("white")
 
     # Collect all unique horizons across all experiments for x-axis
