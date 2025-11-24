@@ -420,10 +420,13 @@ def print_diagnostic_info(job_groups, max_concurrent_jobs_per_gpu, num_gpus, num
         for i, job_item in enumerate(group.items()):
             _, job = job_item
             print(f"  {i + 1}. {os.path.basename(job.checkpoint_path)}")
-        print(f"Eval directory: {job.run_dir}")
-        print(f"Config Name: {job.config_name}")
-        if job.overrides:
-            print(f"Overrides: {job.overrides}")
+        try:
+            print(f"Eval directory: {job.run_dir}")
+            print(f"Config Name: {job.config_name}")
+            if job.overrides:
+                print(f"Overrides: {job.overrides}")
+        except:
+            print("  Error: job not found. Likely no checkpoints found in the group.")
         print()
     print()
 
