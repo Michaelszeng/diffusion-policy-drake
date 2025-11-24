@@ -1,4 +1,4 @@
-# LLsub ./submit_launch_eval.sh -s 40 -g volta:2 -- config/long_context_6_obs/all_action_horizons_launch_eval_supercloud.txt "50,50,100"
+# LLsub ./submit_launch_eval.sh -s 40 -g volta:2 -- config/long_context_6_obs/all_action_horizons_launch_eval_supercloud.txt "100,100,300"
 checkpoint_path,run_dir,config_name,overrides
 /home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/6_obs,eval/sim_sim/long_context_6_obs/T_a_1,gamepad_teleop_carbon.yaml,diffusion_policy_config.cfg_overrides.n_action_steps=1
 /home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/6_obs,eval/sim_sim/long_context_6_obs/T_a_2,gamepad_teleop_carbon.yaml,diffusion_policy_config.cfg_overrides.n_action_steps=2
