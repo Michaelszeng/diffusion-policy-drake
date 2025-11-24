@@ -28,9 +28,11 @@ from planning_through_contact.simulation.sim_utils import (
     randomize_pusher,
     randomize_table,
 )
+from planning_through_contact.simulation.systems.combine_spatial_forces import CombineSpatialForces
 from planning_through_contact.simulation.systems.constant_velocity_disturber import ConstantVelocityDisturber
 from planning_through_contact.simulation.systems.iiwa_planner import IiwaPlanner
 from planning_through_contact.simulation.systems.joint_velocity_clamp import JointVelocityClamp
+from planning_through_contact.simulation.systems.periodic_impulse_disturber import PeriodicImpulseDisturber
 from planning_through_contact.simulation.systems.planar_translation_to_rigid_transform_system import (
     PlanarTranslationToRigidTransformSystem,
 )
@@ -146,6 +148,27 @@ class IiwaHardwareStation(RobotSystemBase):
                     ),
                 )
 
+            if (
+                sim_config.periodic_impulse_disturbance_force
+                or sim_config.periodic_impulse_disturbance_force_torque > 0.0
+            ):
+                self.periodic_impulse_disturber = builder.AddSystem(
+                    PeriodicImpulseDisturber(
+                        plant=external_mbp,
+                        body_index=external_mbp.GetBodyByName(sim_config.slider.name).index(),
+                        period_s=sim_config.periodic_impulse_disturbance_pulse_period,
+                        pulse_duration_s=sim_config.periodic_impulse_disturbance_pulse_duration,
+                        impulse_magnitude=sim_config.periodic_impulse_disturbance_force,
+                        angular_impulse_magnitude=sim_config.periodic_impulse_disturbance_force_torque,
+                        tune_mode=sim_config.periodic_impulse_disturbance_tune_mode,
+                    ),
+                )
+
+            if (
+                sim_config.constant_velocity_disturbance > 0.0
+                or sim_config.periodic_impulse_disturbance_force
+                or sim_config.periodic_impulse_disturbance_force_torque > 0.0
+            ):
                 # Add success checker to disable disturbance when goal is reached
                 # SuccessChecker will automatically determine mode and load convex hulls if needed
                 self.success_checker = builder.AddSystem(
@@ -383,8 +406,9 @@ class IiwaHardwareStation(RobotSystemBase):
                 "object_state_measured",
             )
 
-            # Connections to velocity disturbance controller
+            # Connections for constant-velocity disturbance controller
             if sim_config.constant_velocity_disturbance > 0.0:
+                constant_velocity_disturber_out = self.constant_velocity_disturber.get_output_port()
                 builder.Connect(
                     run_flag_system.get_output_port(),
                     self.constant_velocity_disturber.GetInputPort("enable"),
@@ -403,7 +427,44 @@ class IiwaHardwareStation(RobotSystemBase):
                     self.constant_velocity_disturber.GetInputPort("success"),
                 )
                 builder.Connect(
-                    self.constant_velocity_disturber.get_output_port(),
+                    constant_velocity_disturber_out,
+                    self.station.GetInputPort("applied_spatial_force"),
+                )
+
+            # Connections for periodic-impulse disturbance controller
+            if (
+                sim_config.periodic_impulse_disturbance_force
+                or sim_config.periodic_impulse_disturbance_force_torque > 0.0
+            ):
+                periodic_impulse_disturber_out = self.periodic_impulse_disturber.get_output_port()
+                builder.Connect(
+                    run_flag_system.get_output_port(),
+                    self.periodic_impulse_disturber.GetInputPort("enable"),
+                )
+                # Connect success checker
+                builder.Connect(
+                    self.station.GetOutputPort("state"),
+                    self.success_checker.GetInputPort("x_plant"),
+                )
+                builder.Connect(
+                    self.success_checker.GetOutputPort("success"),
+                    self.periodic_impulse_disturber.GetInputPort("success"),
+                )
+                builder.Connect(
+                    periodic_impulse_disturber_out,
+                    self.station.GetInputPort("applied_spatial_force"),
+                )
+
+            # If both disturbances are present, sum their spatial forces via CombineSpatialForces
+            if sim_config.constant_velocity_disturbance > 0.0 and (
+                sim_config.periodic_impulse_disturbance_force
+                or sim_config.periodic_impulse_disturbance_force_torque > 0.0
+            ):
+                combiner = builder.AddSystem(CombineSpatialForces())
+                builder.Connect(constant_velocity_disturber_out, combiner.GetInputPort("forces_A"))
+                builder.Connect(periodic_impulse_disturber_out, combiner.GetInputPort("forces_B"))
+                builder.Connect(
+                    combiner.GetOutputPort("combined"),
                     self.station.GetInputPort("applied_spatial_force"),
                 )
 

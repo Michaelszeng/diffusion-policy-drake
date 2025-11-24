@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 
 import numpy as np
-from pydrake.all import Diagram, DiagramBuilder, ZeroOrderHold
+from pydrake.all import Diagram, DiagramBuilder, Meshcat, ZeroOrderHold
 
 from planning_through_contact.geometry.planar.planar_pose import PlanarPose
 from planning_through_contact.simulation.controllers.diffusion_policy_controller import (
@@ -46,7 +46,7 @@ class DiffusionPolicySource(Diagram):
     DiffusionPolicyController to actual trajectories (the DiffusionPolicyController outputs discrete actions).
     """
 
-    def __init__(self, diffusion_policy_config: DiffusionPolicyConfig):
+    def __init__(self, diffusion_policy_config: DiffusionPolicyConfig, meshcat: Meshcat):
         super().__init__()
 
         builder = DiagramBuilder()
@@ -68,6 +68,7 @@ class DiffusionPolicySource(Diagram):
                 device=diffusion_policy_config.device,
                 cfg_overrides=diffusion_policy_config.cfg_overrides,
                 save_logs=diffusion_policy_config.save_logs,
+                meshcat=meshcat,
             ),
         )
 

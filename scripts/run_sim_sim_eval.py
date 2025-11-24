@@ -120,7 +120,7 @@ class SimSimEval:
         self.workspace = self.multi_run_config.workspace
 
         # Diffusion Policy
-        position_source = DiffusionPolicySource(self.sim_config.diffusion_policy_config)
+        position_source = DiffusionPolicySource(self.sim_config.diffusion_policy_config, station_meshcat)
 
         # Set up environment
         self.environment = SimulatedRealTableEnvironment(
@@ -276,6 +276,7 @@ class SimSimEval:
 
                     if num_completed_trials >= self.multi_run_config.num_trials_to_record and not self.continue_eval:
                         meshcat.StopRecording()
+                        self.environment.save_recording("eval.html", self.output_dir)
 
                 # Finished Eval
                 if num_completed_trials - prev_completed_trials >= self.multi_run_config.num_runs:
@@ -403,6 +404,13 @@ class SimSimEval:
             direction = trial_rng.uniform(0, 2 * np.pi)
             v_xy_des = self.sim_config.constant_velocity_disturbance * np.array([np.cos(direction), np.sin(direction)])
             self.environment._robot_system.constant_velocity_disturber.set_constant_velocity_disturbance(v_xy_des)
+
+        if (
+            self.sim_config.periodic_impulse_disturbance_force
+            or self.sim_config.periodic_impulse_disturbance_force_torque > 0.0
+        ):
+            # Update RNG for reproducible trials
+            self.environment._robot_system.periodic_impulse_disturber.set_rng(trial_rng)
 
         self.environment.reset(
             self.sim_config.default_joint_positions,

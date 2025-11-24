@@ -126,13 +126,19 @@ class PlanarPushingSimConfig:
     arbitrary_shape_pickle_path: str = ""
     arbitrary_shape_rgba: np.ndarray = np.array([0.0, 0.0, 0.0, 1.0])
     default_joint_positions: np.ndarray = None
+    # Constant Velocity Disturbance Parameters
     constant_velocity_disturbance: float = 0.0
-    # PD gains for constant velocity disturbance controller
     constant_velocity_disturbance_Kp: float = 60.0
     constant_velocity_disturbance_Kd: float = 5.0
     constant_velocity_disturbance_force_cap: float = 0.85
     constant_velocity_disturbance_velocity_window_size: int = 5
     constant_velocity_disturbance_tune_mode: bool = False
+    # Constant Impulse Disturbance Parameters
+    periodic_impulse_disturbance_force: float = 0.025
+    periodic_impulse_disturbance_force_torque: float = 0.0
+    periodic_impulse_disturbance_pulse_duration: float = 0.05
+    periodic_impulse_disturbance_pulse_period: float = 2.0
+    periodic_impulse_disturbance_tune_mode: bool = False
 
     @classmethod
     def from_yaml(cls, cfg: OmegaConf):
@@ -206,6 +212,11 @@ class PlanarPushingSimConfig:
                 "constant_velocity_disturbance_velocity_window_size", 5
             ),
             constant_velocity_disturbance_tune_mode=cfg.get("constant_velocity_disturbance_tune_mode", False),
+            periodic_impulse_disturbance_force=cfg.get("periodic_impulse_disturbance_force", 0.0),
+            periodic_impulse_disturbance_force_torque=cfg.get("periodic_impulse_disturbance_force_torque", 0.0),
+            periodic_impulse_disturbance_pulse_duration=cfg.get("periodic_impulse_disturbance_pulse_duration", 0.00),
+            periodic_impulse_disturbance_pulse_period=cfg.get("periodic_impulse_disturbance_pulse_period", 2.0),
+            periodic_impulse_disturbance_tune_mode=cfg.get("periodic_impulse_disturbance_tune_mode", False),
         )
 
         # Optional fields
@@ -370,4 +381,9 @@ class PlanarPushingSimConfig:
             and self.constant_velocity_disturbance_velocity_window_size
             == other.constant_velocity_disturbance_velocity_window_size
             and self.constant_velocity_disturbance_tune_mode == other.constant_velocity_disturbance_tune_mode
+            and self.periodic_impulse_disturbance_force == other.periodic_impulse_disturbance_force
+            and self.periodic_impulse_disturbance_force_torque == other.periodic_impulse_disturbance_force_torque
+            and self.periodic_impulse_disturbance_pulse_duration == other.periodic_impulse_disturbance_pulse_duration
+            and self.periodic_impulse_disturbance_pulse_period == other.periodic_impulse_disturbance_pulse_period
+            and self.periodic_impulse_disturbance_tune_mode == other.periodic_impulse_disturbance_tune_mode
         )
