@@ -16,12 +16,18 @@ import omegaconf
 import torch
 from diffusion_policy.dataset.base_dataset import BaseImageDataset
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
-
-# Pydrake imports
-from pydrake.common.value import AbstractValue, Value
-from pydrake.math import RigidTransform
-from pydrake.systems.framework import Context, LeafSystem
-from pydrake.systems.sensors import Image, PixelType
+from pydrake.all import (
+    AbstractValue,
+    Context,
+    Image,
+    LeafSystem,
+    Meshcat,
+    PixelType,
+    Rgba,
+    RigidTransform,
+    Sphere,
+    Value,
+)
 
 from planning_through_contact.geometry.planar.planar_pose import PlanarPose
 
@@ -32,6 +38,13 @@ np.set_printoptions(precision=4)
 
 
 class DiffusionPolicyController(LeafSystem):
+    """
+    NOTE: if `n_action_steps > horizon - n_obs_steps + 1` (i.e. the specified action
+    horizon goes beyond the prediction horizon), Pytorch does not raise an error and
+    simply indexes up to the end of `action_prediction`. So the efffective action
+    horizon is `min(n_action_steps, horizon - n_obs_steps + 1)`.
+    """
+
     def __init__(
         self,
         checkpoint: str,
@@ -44,10 +57,11 @@ class DiffusionPolicyController(LeafSystem):
         debug: bool = False,
         save_logs: bool = False,
         cfg_overrides: dict = {},
+        meshcat: Meshcat = None,
     ):
         super().__init__()
-        self._checkpoint = pathlib.Path(checkpoint)
-        self._diffusion_policy_path = pathlib.Path(diffusion_policy_path)
+        self._checkpoint = pathlib.Path(checkpoint).expanduser()
+        self._diffusion_policy_path = pathlib.Path(diffusion_policy_path).expanduser()
         self._initial_pusher_pose = initial_pusher_pose
         self._target_slider_pose = target_slider_pose
         self._freq = freq
@@ -56,6 +70,7 @@ class DiffusionPolicyController(LeafSystem):
         self._debug = debug
         self._device = torch.device(device)
         self._cfg_overrides = cfg_overrides
+        self._meshcat = meshcat
         self._load_policy_from_checkpoint(self._checkpoint)
 
         # get parameters
@@ -152,13 +167,11 @@ class DiffusionPolicyController(LeafSystem):
         self._normalizer = self._load_normalizer()
 
         # get policy from workspace
-        self._policy = workspace.model
-        self._policy.set_normalizer(self._normalizer)
-        if self._cfg.training.use_ema:
-            self._policy = workspace.ema_model
-            self._policy.set_normalizer(self._normalizer)
-        self._policy.to(self._device)
-        self._policy.eval()
+        policy = workspace.ema_model if self._cfg.training.use_ema else workspace.model
+        policy.set_normalizer(self._normalizer)
+        policy.to(self._device)
+        policy.eval()
+        self._policy = policy
 
     def _deque_to_dict(self, obs_deque: deque, image_deque_dict: dict, target: np.ndarray):
         state_tensor = torch.cat([torch.from_numpy(obs) for obs in obs_deque], dim=0).reshape(
@@ -240,6 +253,11 @@ class DiffusionPolicyController(LeafSystem):
                     )
 
             actions = action_prediction[self._start : self._end]
+
+            # Visualize predicted trajectory in meshcat
+            if self._meshcat is not None:
+                self._visualize_trajectory(actions.cpu().numpy())
+
             for action in actions:
                 self._actions.append(action.cpu().numpy())
 
@@ -293,6 +311,24 @@ class DiffusionPolicyController(LeafSystem):
             if image.shape[0] != image_height or image.shape[1] != image_width:
                 image = cv2.resize(image, (image_width, image_height))
             self._image_deque_dict[camera].append(image[:, :, :-1])  # H W C
+
+    def _visualize_trajectory(self, trajectory: np.ndarray):
+        """Visualize predicted trajectory in meshcat with points at each timestep."""
+        # Clear previous trajectory visualization
+        self._meshcat.Delete("predicted_trajectory")
+
+        # Draw each action as a sphere
+        for i, action in enumerate(trajectory):
+            # Green for executed actions (first n_action_steps), yellow for others
+            if i < self._action_steps:
+                color = Rgba(0.0, 1.0, 0.0, 0.8)  # Green
+            else:
+                color = Rgba(1.0, 1.0, 0.0, 0.8)  # Yellow
+
+            sphere_path = f"predicted_trajectory/point_{i}"
+            self._meshcat.SetObject(sphere_path, Sphere(0.005), color)
+            # Position at (x, y, z=0.0) - assuming planar pushing
+            self._meshcat.SetTransform(sphere_path, RigidTransform([action[0], action[1], 0.0]))
 
     def _load_normalizer(self):
         """

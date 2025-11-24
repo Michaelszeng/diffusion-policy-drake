@@ -102,6 +102,8 @@ class ConstantVelocityDisturber(LeafSystem):
             output.set_value([])  # no disturbance outside PUSHING mode or after slider reaches goal
             return
 
+        self._success_printed = False
+
         # Mirror the plant’s state so we can query velocities.
         x = self._state_in.Eval(context)
         self._plant.SetPositionsAndVelocities(self._context_plant, x)

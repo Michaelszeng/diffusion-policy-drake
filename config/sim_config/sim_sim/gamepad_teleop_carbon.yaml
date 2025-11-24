@@ -2,6 +2,7 @@ defaults:
   - _self_
   - hydra: base_hydra
 
+SEED: 1
 meshcat_port: 7000
 
 ########################################################################################################################
@@ -77,6 +78,18 @@ meshcat_port: 7000
 # constant_velocity_disturbance_velocity_window_size: 5  # Moving average window size for velocity smoothing
 # constant_velocity_disturbance_tune_mode: true  # If true, prints debug info for tuning
 
+# periodic_impulse_disturbance_force: 6.0  # N
+# periodic_impulse_disturbance_force_torque: 0.1  # N·m
+# periodic_impulse_disturbance_pulse_duration: 0.001  # s
+# periodic_impulse_disturbance_pulse_period: 2.0  # s
+# periodic_impulse_disturbance_tune_mode: true  # If true, prints debug info for tuning
+
+# periodic_impulse_disturbance_force: 10.0  # N
+# periodic_impulse_disturbance_force_torque: 0.2  # N·m
+# periodic_impulse_disturbance_pulse_duration: 0.001  # s
+# periodic_impulse_disturbance_pulse_period: 4.0  # s
+# periodic_impulse_disturbance_tune_mode: true  # If true, prints debug info for tuning
+
 ########################################################################################################################
 ### PlanarPushingSimConfig
 ########################################################################################################################
@@ -130,6 +143,8 @@ diffusion_policy_config:
   device: 'cuda:0'
   cfg_overrides:
     n_action_steps: 2
+    policy:
+      inference_loading: true
 use_hardware: false
 pusher_z_offset: 0.015
 camera_configs:
@@ -195,7 +210,7 @@ multi_run_config:
   _target_: planning_through_contact.simulation.planar_pushing_sim_config.MultiRunConfig
   num_runs: 100
   max_attempt_duration: 75
-  seed: 0
+  seed: ${SEED}
   slider_type: ${slider_type}
   arbitrary_shape_pickle_path: ${arbitrary_shape_pickle_path}
   pusher_start_pose: ${pusher_start_pose}
