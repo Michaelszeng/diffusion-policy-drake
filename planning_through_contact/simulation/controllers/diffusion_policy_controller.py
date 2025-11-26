@@ -262,7 +262,7 @@ class DiffusionPolicyController(LeafSystem):
 
             # Visualize predicted trajectory in meshcat
             if self._meshcat is not None:
-                self._visualize_trajectory(action_prediction)
+                self._visualize_trajectory(action_prediction.cpu().numpy())
 
             for action in actions:
                 self._actions.append(action.cpu().numpy())
