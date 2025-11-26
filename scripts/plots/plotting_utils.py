@@ -155,9 +155,13 @@ def load_success_rate(summary_path: Path) -> Tuple[float, int]:
 
 
 def find_best_checkpoint(horizon_dir: Path) -> Optional[HorizonResult]:
-    """Return the *HorizonResult* corresponding to the best checkpoint in *horizon_dir*."""
+    """Return the *HorizonResult* corresponding to the best checkpoint in *horizon_dir*.
+    
+    Prioritizes checkpoints with the most trials for statistical significance, then
+    selects the one with the highest success rate among those.
+    """
 
-    best_result: Optional[HorizonResult] = None
+    candidates: List[HorizonResult] = []
     seen_checkpoints = set()  # Track unique checkpoint directories
 
     for summary_path in sorted(horizon_dir.glob("**/summary.pkl")):
@@ -174,26 +178,25 @@ def find_best_checkpoint(horizon_dir: Path) -> Optional[HorizonResult]:
         
         horizon_value = parse_horizon_from_dirname(horizon_dir.name)
         candidate = HorizonResult(horizon_value, success_rate, total_trials, checkpoint_dir)
+        candidates.append(candidate)
 
-        if best_result is None:
-            best_result = candidate
-            continue
+    if not candidates:
+        return None
 
-        if success_rate > best_result.success_rate + 1e-6:
-            best_result = candidate
-            continue
-
-        are_equal = math.isclose(success_rate, best_result.success_rate, rel_tol=1e-6)
-        if are_equal and total_trials > best_result.num_trials:
-            best_result = candidate
-            continue
-
-        if are_equal and best_result.checkpoint_dir.name != "latest.ckpt" and checkpoint_dir.name == "latest.ckpt":
-            best_result = candidate
-
+    # Find maximum number of trials among all checkpoints
+    max_trials = max(candidate.num_trials for candidate in candidates)
+    
+    # Filter to only checkpoints with the maximum number of trials
+    candidates_with_max_trials = [
+        candidate for candidate in candidates 
+        if candidate.num_trials == max_trials
+    ]
+    
+    # Among those, select the one with highest success rate
+    best_result = max(candidates_with_max_trials, key=lambda c: c.success_rate)
+    
     # Update the final count of checkpoints available
-    if best_result is not None:
-        best_result.num_checkpoints_available = len(seen_checkpoints)
+    best_result.num_checkpoints_available = len(seen_checkpoints)
 
     return best_result
 

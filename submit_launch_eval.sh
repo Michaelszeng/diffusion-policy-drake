@@ -62,7 +62,7 @@ if [ ! -f "$CONFIG_PATH" ]; then
     exit 1
 fi
 
-# Accept comma-separated list (e.g. "50,100,350") and convert to space-separated
+# Accept comma-separated list (e.g. "100,100,300") and convert to space-separated
 # DEFAULT_NUM_TRIALS="500"
 DEFAULT_NUM_TRIALS="100,100,300"
 # If the user supplied a second positional parameter, use it; otherwise use default
@@ -90,5 +90,5 @@ python -u scripts/launch_eval.py \
     --max-concurrent-jobs-per-gpu $CONCURRENT_JOBS_PER_GPU \
     --num-gpus $NUM_GPUS \
     --num-trials-per-round $NUM_TRIALS \
-    --drop-threshold 0.05 \
+    --drop-threshold 0.1 \
     --force

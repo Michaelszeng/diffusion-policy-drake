@@ -144,11 +144,17 @@ class DiffusionPolicyController(LeafSystem):
         self._cfg = payload["cfg"]  # Retrieve OmegaConf used during training
 
         # Override diffusion policy config
+        # Temporarily disable struct mode to allow adding new keys
         for key, value in self._cfg_overrides.items():
             if isinstance(value, omegaconf.dictconfig.DictConfig):
                 for k, v in value.items():
                     if key in self._cfg:
+                        # Disable struct mode temporarily to allow new keys
+                        original_struct = omegaconf.OmegaConf.is_struct(self._cfg[key])
+                        omegaconf.OmegaConf.set_struct(self._cfg[key], False)
                         self._cfg[key][k] = v
+                        # Restore original struct mode
+                        omegaconf.OmegaConf.set_struct(self._cfg[key], original_struct)
             elif key in self._cfg:
                 self._cfg[key] = value
 
