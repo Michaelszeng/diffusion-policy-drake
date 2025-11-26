@@ -42,12 +42,16 @@ export LCM_DEFAULT_URL=memq://null
 export OMP_NUM_THREADS=2
 
 # Fix lack of X server when running on Supercloud
-export DISPLAY=:99
+# Use job ID to create unique display number
+JOB_ID=${LLSUB_RANK:-$$}  # Use LLSUB_RANK if available, otherwise process ID
+DISPLAY_NUM=$((99 + JOB_ID % 100))  # Offset from 99 to avoid conflicts
+export DISPLAY=:$DISPLAY_NUM
 export LIBGL_ALWAYS_SOFTWARE=1
 export __GLX_VENDOR_LIBRARY_NAME=mesa
 export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
 export GALLIUM_DRIVER=llvmpipe
-Xvfb "$DISPLAY" -screen 0 1400x900x24 -nolisten tcp > /tmp/xvfb.log 2>&1 &  # silence Xvfb output
+echo "[submit_launch_eval.sh] Starting Xvfb on display :$DISPLAY_NUM"
+Xvfb "$DISPLAY" -screen 0 1400x900x24 -nolisten tcp > /tmp/xvfb_${DISPLAY_NUM}.log 2>&1 &  # silence Xvfb output
 xvfb_pid=$!
 trap "kill $xvfb_pid" EXIT
 
