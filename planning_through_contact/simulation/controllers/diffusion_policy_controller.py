@@ -262,7 +262,7 @@ class DiffusionPolicyController(LeafSystem):
 
             # Visualize predicted trajectory in meshcat
             if self._meshcat is not None:
-                self._visualize_trajectory(actions.cpu().numpy())
+                self._visualize_trajectory(action_prediction)
 
             for action in actions:
                 self._actions.append(action.cpu().numpy())
@@ -325,8 +325,8 @@ class DiffusionPolicyController(LeafSystem):
 
         # Draw each action as a sphere
         for i, action in enumerate(trajectory):
-            # Green for executed actions (first n_action_steps), yellow for others
-            if i < self._action_steps:
+            # Green for action chunk (i.e. trajectory[self._start : self._end]), yellow for others
+            if i >= self._start and i < self._end:
                 color = Rgba(0.0, 1.0, 0.0, 0.8)  # Green
             else:
                 color = Rgba(1.0, 1.0, 0.0, 0.8)  # Yellow
