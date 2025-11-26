@@ -325,11 +325,13 @@ class DiffusionPolicyController(LeafSystem):
 
         # Draw each action as a sphere
         for i, action in enumerate(trajectory):
-            # Green for action chunk (i.e. trajectory[self._start : self._end]), yellow for others
-            if i >= self._start and i < self._end:
+            # Red for past action, green for action chunk (i.e. trajectory[self._start : self._end]), yellow for others
+            if i < self._start:
+                color = Rgba(1.0, 0.0, 0.0, 0.8)  # Red
+            elif i >= self._start and i < self._end:
                 color = Rgba(0.0, 1.0, 0.0, 0.8)  # Green
             else:
-                color = Rgba(1.0, 1.0, 0.0, 0.8)  # Yellow
+                color = Rgba(1.0, 1.0, 0.0, 0.8)  # Yellow (future actions)
 
             sphere_path = f"predicted_trajectory/point_{i}"
             self._meshcat.SetObject(sphere_path, Sphere(0.005), color)
