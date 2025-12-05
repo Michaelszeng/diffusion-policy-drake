@@ -142,7 +142,7 @@ diffusion_policy_config:
   debug: false
   device: 'cuda:0'
   cfg_overrides:
-    n_action_steps: 2
+    n_action_steps: 8
     policy:
       inference_loading: true
 use_hardware: false

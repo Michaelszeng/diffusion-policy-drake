@@ -247,6 +247,7 @@ class DiffusionPolicyController(LeafSystem):
             start_time = pytime.time()
             with torch.no_grad():
                 action_prediction = self._policy.predict_action(obs_dict, use_DDIM=True)["action_pred"][0]
+                self.current_action_prediction = action_prediction.cpu().numpy()
 
                 # Save logs
                 if self._save_logs:
@@ -259,10 +260,6 @@ class DiffusionPolicyController(LeafSystem):
                     )
 
             actions = action_prediction[self._start : self._end]
-
-            # Visualize predicted trajectory in meshcat
-            if self._meshcat is not None:
-                self._visualize_trajectory(action_prediction.cpu().numpy())
 
             for action in actions:
                 self._actions.append(action.cpu().numpy())
@@ -280,6 +277,9 @@ class DiffusionPolicyController(LeafSystem):
                 print(action_prediction)
                 print("\nActions")
                 print(actions)
+
+        # Visualize predicted trajectory in meshcat
+        self._visualize_trajectory(self.current_action_prediction, time - self._last_reset_time)
 
         # get next action
         assert len(self._actions) > 0
@@ -318,7 +318,7 @@ class DiffusionPolicyController(LeafSystem):
                 image = cv2.resize(image, (image_width, image_height))
             self._image_deque_dict[camera].append(image[:, :, :-1])  # H W C
 
-    def _visualize_trajectory(self, trajectory: np.ndarray):
+    def _visualize_trajectory(self, trajectory: np.ndarray, time_in_recording: float):
         """Visualize predicted trajectory in meshcat with points at each timestep."""
         # Clear previous trajectory visualization
         self._meshcat.Delete("predicted_trajectory")
@@ -336,7 +336,7 @@ class DiffusionPolicyController(LeafSystem):
             sphere_path = f"predicted_trajectory/point_{i}"
             self._meshcat.SetObject(sphere_path, Sphere(0.005), color)
             # Position at (x, y, z=0.0) - assuming planar pushing
-            self._meshcat.SetTransform(sphere_path, RigidTransform([action[0], action[1], 0.0]))
+            self._meshcat.SetTransform(sphere_path, RigidTransform([action[0], action[1], 0.0]), time_in_recording)
 
     def _load_normalizer(self):
         """
