@@ -11,7 +11,7 @@ baseline, negative values indicate worse performance.
 Example
 -------
 python scripts/plots/make_action_horizons_delta_fig.py \
-    --experiment-path eval/sim_sim/baseline eval/sim_sim/friction_0_3 \
+    --experiment-path eval/sim_sim/baseline/v4 eval/sim_sim/friction_0_3 \
     --experiment-name "Baseline" "mu=0.3" \
     --plot-name "Relative Success Rate" \
     --output outputs/action_horizon_delta.png

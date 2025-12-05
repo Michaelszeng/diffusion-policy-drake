@@ -16,15 +16,15 @@ module load anaconda/Python-ML-2025a
 
 Single experiment:
    python scripts/plots/make_action_horizons_comparison_fig.py \
-       --experiment-path eval/sim_sim/baseline \
+       --experiment-path eval/sim_sim/baseline/v4 \
        --plot-name "Action Horizon Comparison" \
        --output outputs/action_horizon_success.png
 
 Multiple experiments with custom legend labels and title:
    python scripts/plots/make_action_horizons_comparison_fig.py \
-       --experiment-path eval/sim_sim/baseline eval/sim_sim/friction_0_3 eval/sim_sim/friction_0_1 \
+       --experiment-path eval/sim_sim/baseline/v4 eval/sim_sim/friction_0_3 eval/sim_sim/friction_0_1 \
        --experiment-name "Baseline" "mu=0.3" "mu=0.1" \
-       --plot-name "Action Horizon Comparison" \
+       --plot-name "Friction Performance (500 Trials)" \
        --output outputs/action_horizon_comparison.png
 
 Don't set --output to not save the figure to disk.
@@ -33,7 +33,6 @@ Set --show to show the figure in an interactive window after saving.
 Notes:
 - --experiment-name is used for legend labels (optional, defaults to directory names)
 - --plot-name is used for the plot title (optional, defaults to auto-generated title)
-- --
 """
 
 from __future__ import annotations
