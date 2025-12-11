@@ -58,6 +58,7 @@ class DiffusionPolicyController(LeafSystem):
         save_logs: bool = False,
         cfg_overrides: dict = {},
         meshcat: Meshcat = None,
+        multiple_inference: int = 1,
     ):
         super().__init__()
         self._checkpoint = pathlib.Path(checkpoint).expanduser()
@@ -71,6 +72,7 @@ class DiffusionPolicyController(LeafSystem):
         self._device = torch.device(device)
         self._cfg_overrides = cfg_overrides
         self._meshcat = meshcat
+        self._multiple_inference = max(1, multiple_inference)  # Ensure at least 1
         self._load_policy_from_checkpoint(self._checkpoint)
 
         # get parameters
@@ -245,27 +247,40 @@ class DiffusionPolicyController(LeafSystem):
         if len(self._actions) == 0:
             # Compute new actions
             start_time = pytime.time()
+
+            # Run inference multiple times if specified
+            all_action_predictions = []
             with torch.no_grad():
-                action_prediction = self._policy.predict_action(obs_dict, use_DDIM=True)["action_pred"][0]
-                self.current_action_prediction = action_prediction.cpu().numpy()
+                for i in range(self._multiple_inference):
+                    action_prediction = self._policy.predict_action(obs_dict, use_DDIM=True)["action_pred"][0]
+                    all_action_predictions.append(action_prediction.cpu().numpy())
 
-                # Save logs
-                if self._save_logs:
-                    self._logs["actions"].append(action_prediction.cpu().numpy())
-                    self._logs["poses"].append(np.array([pose for pose in self._pusher_pose_deque]))
-                    for camera, image_deque in self._image_deque_dict.items():
-                        self._logs["images"][camera].append(np.array([img for img in image_deque]))
-                    self._logs["embeddings"].append(
-                        self._policy.compute_obs_embedding(obs_dict).cpu().numpy().flatten()
-                    )
+                    # Only save logs and compute embedding for the first inference
+                    if i == 0:
+                        self.current_action_prediction = action_prediction.cpu().numpy()
 
+                        if self._save_logs:
+                            self._logs["actions"].append(action_prediction.cpu().numpy())
+                            self._logs["poses"].append(np.array([pose for pose in self._pusher_pose_deque]))
+                            for camera, image_deque in self._image_deque_dict.items():
+                                self._logs["images"][camera].append(np.array([img for img in image_deque]))
+                            self._logs["embeddings"].append(
+                                self._policy.compute_obs_embedding(obs_dict).cpu().numpy().flatten()
+                            )
+
+            # Store all action predictions for visualization
+            self.all_action_predictions = all_action_predictions
+
+            # Only use the first inference result for execution
+            action_prediction = torch.from_numpy(all_action_predictions[0])
             actions = action_prediction[self._start : self._end]
 
             for action in actions:
-                self._actions.append(action.cpu().numpy())
+                self._actions.append(action.cpu().numpy() if torch.is_tensor(action) else action)
 
             if self._debug:
-                print(f"[TIME: {time:.3f}] Computed new actions in {pytime.time() - start_time:.3f}s\n")
+                elapsed_time = pytime.time() - start_time
+                print(f"[TIME: {time:.3f}] Computed {self._multiple_inference} inference(s) in {elapsed_time:.3f}s\n")
                 print("Observations:")
                 for state in self._pusher_pose_deque:
                     print(state)
@@ -273,13 +288,17 @@ class DiffusionPolicyController(LeafSystem):
                     for img in image_deque:
                         plt.imshow(img)
                         plt.show()
-                print("\nAction Predictions:")
+                print("\nAction Predictions (first inference):")
                 print(action_prediction)
                 print("\nActions")
                 print(actions)
 
-        # Visualize predicted trajectory in meshcat
-        self._visualize_trajectory(self.current_action_prediction, time - self._last_reset_time)
+        # Visualize predicted trajectories in meshcat
+        if hasattr(self, 'all_action_predictions'):
+            trajectories_to_visualize = self.all_action_predictions
+        else:
+            trajectories_to_visualize = [self.current_action_prediction]
+        self._visualize_trajectories(trajectories_to_visualize, time - self._last_reset_time)
 
         # get next action
         assert len(self._actions) > 0
@@ -318,25 +337,33 @@ class DiffusionPolicyController(LeafSystem):
                 image = cv2.resize(image, (image_width, image_height))
             self._image_deque_dict[camera].append(image[:, :, :-1])  # H W C
 
-    def _visualize_trajectory(self, trajectory: np.ndarray, time_in_recording: float):
-        """Visualize predicted trajectory in meshcat with points at each timestep."""
+    def _visualize_trajectories(self, trajectories: list, time_in_recording: float):
+        """Visualize multiple predicted trajectories in meshcat with points at each timestep."""
         # Clear previous trajectory visualization
         self._meshcat.Delete("predicted_trajectory")
 
-        # Draw each action as a sphere
-        for i, action in enumerate(trajectory):
-            # Red for past action, green for action chunk (i.e. trajectory[self._start : self._end]), yellow for others
-            if i < self._start:
-                color = Rgba(1.0, 0.0, 0.0, 0.8)  # Red
-            elif i >= self._start and i < self._end:
-                color = Rgba(0.0, 1.0, 0.0, 0.8)  # Green
-            else:
-                color = Rgba(1.0, 1.0, 0.0, 0.8)  # Yellow (future actions)
+        # Draw each trajectory
+        for traj_idx, trajectory in enumerate(trajectories):
+            # First trajectory is primary (executed), others are alternatives
+            is_primary = traj_idx == 0
+            alpha = 0.8 if is_primary else 0.3  # Primary trajectory more opaque
 
-            sphere_path = f"predicted_trajectory/point_{i}"
-            self._meshcat.SetObject(sphere_path, Sphere(0.005), color)
-            # Position at (x, y, z=0.0) - assuming planar pushing
-            self._meshcat.SetTransform(sphere_path, RigidTransform([action[0], action[1], 0.0]), time_in_recording)
+            # Draw each action as a sphere
+            for i, action in enumerate(trajectory):
+                # Same color scheme for all trajectories: Red for past, green for action chunk, yellow for future
+                # Distinguish primary vs alternatives using opacity and size
+                if i < self._start:
+                    color = Rgba(1.0, 0.0, 0.0, alpha)  # Red
+                elif i >= self._start and i < self._end:
+                    color = Rgba(0.0, 1.0, 0.0, alpha)  # Green
+                else:
+                    color = Rgba(1.0, 1.0, 0.0, alpha)  # Yellow
+
+                sphere_path = f"predicted_trajectory/traj_{traj_idx}/point_{i}"
+                sphere_size = 0.005 if is_primary else 0.003  # Primary trajectory has larger spheres
+                self._meshcat.SetObject(sphere_path, Sphere(sphere_size), color)
+                # Position at (x, y, z=0.0) - assuming planar pushing
+                self._meshcat.SetTransform(sphere_path, RigidTransform([action[0], action[1], 0.0]), time_in_recording)
 
     def _load_normalizer(self):
         """
