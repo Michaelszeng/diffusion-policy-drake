@@ -252,6 +252,13 @@ class SimulatedRealTableEnvironment:
         )
         self._slider_pose_logger = LogVectorOutput(slider_pose_to_planar_pose.get_output_port(), builder, 0.01)
 
+        # GCS Planner debug logging
+        self._gcs_action_log = None
+        self._gcs_pusher_log = None
+        if self._desired_position_source_type == DesiredPositionSourceType.GCS_PLANNER:
+            self._gcs_action_log = self._desired_position_source.GetOutputPort("debug_action")
+            self._gcs_pusher_log = self._desired_position_source.GetOutputPort("debug_pusher_pose")
+
         ## Image writers (only for gamepad controller)
         if self._desired_position_source_type == DesiredPositionSourceType.GAMEPAD:
             # hardcoded path
@@ -419,3 +426,8 @@ class SimulatedRealTableEnvironment:
 
     def get_slider_pose_log(self):
         return self._slider_pose_logger.FindLog(self.context)
+
+    def get_gcs_planner_logs(self):
+        if self._gcs_action_log is None or self._gcs_pusher_log is None:
+            return None, None
+        return self._gcs_action_log, self._gcs_pusher_log

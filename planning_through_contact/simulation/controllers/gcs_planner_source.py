@@ -49,7 +49,11 @@ class GcsPlannerSource(Diagram):
             "run_flag",
         )
 
-        builder.ExportOutput(self._gcs_planner.get_output_port(), "planar_position_command")
+        builder.ExportOutput(self._gcs_planner.GetOutputPort("planar_position_command"), "planar_position_command")
+
+        # Export debug ports
+        builder.ExportOutput(self._gcs_planner.GetOutputPort("debug_action"), "debug_action")
+        builder.ExportOutput(self._gcs_planner.GetOutputPort("debug_pusher_pose"), "debug_pusher_pose")
 
         builder.BuildInto(self)
 

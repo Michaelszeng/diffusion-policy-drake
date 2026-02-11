@@ -44,8 +44,8 @@ class GcsPlannerController(LeafSystem):
         sim_config: PlanarPushingSimConfig,
         meshcat: Meshcat = None,
         delay: float = 1.0,
-        freq: float = 10.0,
-        slow_down_factor: float = 4.0,
+        freq: float = 2.0,
+        slow_down_factor: float = 1.0,
         debug: bool = False,
     ):
         super().__init__()
@@ -57,7 +57,6 @@ class GcsPlannerController(LeafSystem):
         self._meshcat = meshcat
 
         # Initialize state tracking variables
-        self._traj_start_time = None  # Time when the GCS trajectory execution actually starts (when run_flag goes high)
         self._current_action = np.array([0.0, 0.0])
         self._time = 0.0
         self._last_plan_step = -1  # Integer step index
@@ -101,6 +100,10 @@ class GcsPlannerController(LeafSystem):
 
         self.output = self.DeclareVectorOutputPort("planar_position_command", 2, self.DoCalcOutput)
 
+        # Debug ports for logging
+        self.debug_action = self.DeclareVectorOutputPort("debug_action", 2, self.DoCalcDebugAction)
+        self.debug_pusher_pose = self.DeclareVectorOutputPort("debug_pusher_pose", 2, self.DoCalcDebugPusherPose)
+
     def DoCalcOutput(self, context: Context, output):
         _time = context.get_time()
         self._time = _time
@@ -108,66 +111,58 @@ class GcsPlannerController(LeafSystem):
         # Check run flag; only start planning when run_flag is 1
         if self.run_flag.Eval(context)[0] == 0:
             output.set_value(self._current_action)
-            self._traj_start_time = None
             return
 
         if self._traj_start_time is None:  # If we haven't started yet, mark start time
             self._traj_start_time = _time
 
         # Calculate time based on when run_flag went high
-        time_since_start = _time - self._traj_start_time
-        time_in_traj_to_retrieve_action = time_since_start / self._slow_down_factor + 1e-3
+        time_since_traj_start = (_time - self._traj_start_time) / self._slow_down_factor + 1e-3
 
         # Get planar poses for Slider and Pusher and velocity of pusher
         current_slider_rigid_transform = self.slider_pose.Eval(context)
         current_pusher_rigid_transform = self.pusher_pose.Eval(context)
         current_slider_pose = PlanarPose.from_pose(current_slider_rigid_transform)
         current_pusher_pose = PlanarPose.from_pose(current_pusher_rigid_transform)
-        current_pusher_velocity = self.pusher_velocity.Eval(context)
+        current_pusher_vel = self.pusher_velocity.Eval(context)
+        # current_pusher_vel = None
         # current_slider_pose = self._gcs_planner.original_traj.get_slider_planar_pose(time_in_traj_to_retrieve_action)
         # current_pusher_pose = self._gcs_planner.original_traj.get_pusher_planar_pose(time_in_traj_to_retrieve_action)
-        # current_pusher_velocity = self._gcs_planner.original_traj.get_pusher_velocity(time_in_traj_to_retrieve_action)
+        # current_pusher_vel = self._gcs_planner.original_traj.get_pusher_velocity(time_in_traj_to_retrieve_action)
 
         # At next update cycle, generate new trajectory prediction with the fixed mode sequence
         current_step = int(_time * self._freq)
         if current_step > self._last_plan_step:
+            self._last_plan_time = _time
             self._last_plan_step = current_step
             print(f"Sim time: {_time:.4f}s | Current step: {current_step}")
-            print(f"time_in_traj_to_retrieve_action: {time_in_traj_to_retrieve_action:.4f}")
+            print(f"time_since_traj_start: {time_since_traj_start:.4f}")
             print(f"    current_slider_pose: {current_slider_pose}")
             print(f"    current_pusher_pose: {current_pusher_pose}")
-            print(
-                f"    current_pusher_velocity: {current_pusher_velocity} "
-                f"(magnitude: {np.linalg.norm(current_pusher_velocity):.4f})"
-            )
+            if current_pusher_vel is not None:
+                print(f"    current_pusher_vel: {current_pusher_vel} (magnitude: {np.linalg.norm(current_pusher_vel)})")
             start = time.time()
             path = self._gcs_planner.plan(
-                t=time_in_traj_to_retrieve_action,
+                t=time_since_traj_start,
                 current_slider_pose=current_slider_pose,
                 current_pusher_pose=current_pusher_pose,
-                current_pusher_velocity=current_pusher_velocity,
+                current_pusher_velocity=current_pusher_vel,
+                # save_video=True,
+                # output_folder="temp_videos",
+                # output_name=f"traj_{current_step}.mp4",
             )
             print(f"    GCS Planner planning time: {time.time() - start:.3f}s")
             # TODO: converting the PlanarPushingPath to a PlanarPushingTrajectory with path.to_traj() takes ~0.05 sec
             # (which is a lot), so we should try to avoid doing this.
-            self.traj = path.to_traj()
+            self.traj = path.to_traj(rounded=True)
             self.traj.plot_velocity_profile(save_plot=f"temp_vel_profiles/{current_step}")
 
-            # Sanity check: verify all knot points are within 0.5m of target
-            FAIL = False
-            for start, end, kp in zip(self.traj.start_times, self.traj.end_times, self.traj.path_knot_points):
-                for t in np.linspace(start, end, kp.num_knot_points):
-                    p_WP = self.traj.get_value(t, "p_WP")
-                    dist = np.linalg.norm(p_WP - self.traj.target_pusher_planar_pose.pos())
-                    if dist > 0.5:
-                        FAIL = True
-            if FAIL:
-                print("WARNING: GCS Planner trajectory sanity check failed.")
-
         # Output Action from trajectory prediction
+        time_in_traj_to_retrieve_action = (_time - self._last_plan_time) / self._slow_down_factor + 1e-3
         self._current_action = self.traj.get_pusher_planar_pose(time_in_traj_to_retrieve_action).vector()[:2]
-        output.set_value(self._current_action)
-        # print(f"current_action: {self._current_action}")
+        formatter = {'float_kind': lambda x: f"{x:.10f}"}
+        print(f"self._current_action: {np.array2string(self._current_action, formatter=formatter)}")
+        print(f"current_pusher_pose: {np.array2string(current_pusher_pose.vector()[:2], formatter=formatter)}")
 
         # Visualize new predicted trajectory using fixed mode sequence in meshcat
         self._visualize_trajectories(self.traj, Rgba(178 / 255, 34 / 255, 34 / 255, 1.0), _time)
@@ -178,6 +173,15 @@ class GcsPlannerController(LeafSystem):
         # debug print statements
         if self._debug:
             print(f"Time: {_time:.3f}, action: {self._current_action}")
+
+    def DoCalcDebugAction(self, context, output):
+        output.set_value(self._current_action)
+
+    def DoCalcDebugPusherPose(self, context, output):
+        # Re-evaluate pusher pose from input port
+        current_pusher_rigid_transform = self.pusher_pose.Eval(context)
+        current_pusher_pose = PlanarPose.from_pose(current_pusher_rigid_transform)
+        output.set_value(current_pusher_pose.vector()[:2])
 
     def reset(self, pusher_reset_position: np.ndarray = None, new_slider_start_pose: PlanarPose = None):
         """
@@ -258,3 +262,78 @@ class GcsPlannerController(LeafSystem):
 
         # For recording: ensure visibility at the current time by setting a property change
         self._meshcat.SetProperty(name, "visible", True, time_in_recording)
+
+
+def plot_gcs_controller_logs(action_log, pusher_log, root_context):
+    """
+    Helper to plot the logged data.
+
+    Args:
+        action_log: VectorLogSink for action
+        pusher_log: VectorLogSink for pusher pose
+        root_context: Context of the Diagram (root context)
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.widgets import Slider
+
+    # Retrieve logs
+    action_log_data = action_log.FindLog(root_context)
+    pusher_log_data = pusher_log.FindLog(root_context)
+
+    action_times = action_log_data.sample_times()
+    action_values = action_log_data.data()
+    pusher_times = pusher_log_data.sample_times()
+    pusher_values = pusher_log_data.data()
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    plt.subplots_adjust(bottom=0.25)
+
+    # Plot full trajectories
+    ax.plot(
+        action_values[0, :],
+        action_values[1, :],
+        label="Action Path",
+        color="blue",
+        alpha=0.3,
+    )
+    ax.plot(
+        pusher_values[0, :],
+        pusher_values[1, :],
+        "--",
+        label="Pusher Path",
+        color="green",
+        alpha=0.3,
+    )
+
+    # Current points markers
+    (action_point,) = ax.plot([], [], "bo", markersize=10, label="Action")
+    (pusher_point,) = ax.plot([], [], "gx", markersize=10, label="Pusher")
+
+    ax.set_xlabel("X Position (m)")
+    ax.set_ylabel("Y Position (m)")
+    ax.set_title("Trajectory (Time Scrollable)")
+    ax.legend()
+    ax.grid(True)
+    ax.axis("equal")
+
+    # Time Slider
+    t_min, t_max = min(action_times[0], pusher_times[0]), max(action_times[-1], pusher_times[-1])
+    ax_time = plt.axes([0.2, 0.1, 0.65, 0.03])
+    # Use action_times for discrete steps, assuming action updates are the replan events
+    time_slider = Slider(ax_time, "Time", t_min, t_max, valinit=t_min, valstep=action_times)
+
+    def update(val):
+        t = time_slider.val
+        # Find closest indices
+        idx_a = np.searchsorted(action_times, t)
+        idx_a = min(idx_a, len(action_times) - 1)
+        idx_p = np.searchsorted(pusher_times, t)
+        idx_p = min(idx_p, len(pusher_times) - 1)
+
+        action_point.set_data([action_values[0, idx_a]], [action_values[1, idx_a]])
+        pusher_point.set_data([pusher_values[0, idx_p]], [pusher_values[1, idx_p]])
+        fig.canvas.draw_idle()
+
+    time_slider.on_changed(update)
+    update(t_min)
+    plt.show()

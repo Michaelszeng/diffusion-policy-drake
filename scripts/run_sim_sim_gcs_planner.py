@@ -13,6 +13,9 @@ from omegaconf import OmegaConf
 from pydrake.all import StartMeshcat
 
 from planning_through_contact.geometry.collision_checker import CollisionChecker
+from planning_through_contact.simulation.controllers.gcs_planner_controller import (
+    plot_gcs_controller_logs,
+)
 from planning_through_contact.simulation.controllers.gcs_planner_source import (
     GcsPlannerSource,
 )
@@ -165,6 +168,12 @@ class SimSimGcsPlanner:
                 except Exception as save_error:
                     print(f"Error saving recording: {save_error}")
                     traceback.print_exc()
+
+            # Plot GCS controller logs
+            action_log, pusher_log = self.environment.get_gcs_planner_logs()
+            if action_log is not None:
+                print("Plotting GCS logs...")
+                plot_gcs_controller_logs(action_log, pusher_log, self.environment.context)
 
             # # Delete temporary image writer directory
             # if os.path.exists("trajectories_rendered/temp"):
