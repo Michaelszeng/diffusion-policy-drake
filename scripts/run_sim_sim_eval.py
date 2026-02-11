@@ -119,6 +119,8 @@ class SimSimEval:
 
         self.workspace = self.multi_run_config.workspace
 
+        self.collision_checker = CollisionChecker(cfg.arbitrary_shape_pickle_path, cfg.pusher_radius, station_meshcat)
+
         # Diffusion Policy
         position_source = DiffusionPolicySource(self.sim_config.diffusion_policy_config, station_meshcat)
 
@@ -137,7 +139,6 @@ class SimSimEval:
         np.random.seed(self.multi_run_config.seed)
 
         # Random initial T pose
-        self.collision_checker = CollisionChecker(cfg.arbitrary_shape_pickle_path, cfg.pusher_radius, station_meshcat)
         self.reset_environment(0)
 
         # Useful variables for querying mbp

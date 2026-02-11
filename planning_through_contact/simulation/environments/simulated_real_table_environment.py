@@ -1,5 +1,6 @@
 import logging
 import os
+from enum import Enum
 from typing import Optional
 
 import numpy as np
@@ -20,8 +21,14 @@ from pydrake.all import (
 )
 
 from planning_through_contact.geometry.planar.planar_pose import PlanarPose
+from planning_through_contact.simulation.controllers.diffusion_policy_source import (
+    DiffusionPolicySource,
+)
 from planning_through_contact.simulation.controllers.gamepad_controller_source import (
     GamepadControllerSource,
+)
+from planning_through_contact.simulation.controllers.gcs_planner_source import (
+    GcsPlannerSource,
 )
 from planning_through_contact.simulation.controllers.robot_system_base import (
     RobotSystemBase,
@@ -37,8 +44,14 @@ from planning_through_contact.simulation.sim_utils import (
 from planning_through_contact.simulation.systems.generalized_coords_to_planar_pose import (
     GeneralizedCoordsToPlanarPose,
 )
+from planning_through_contact.simulation.systems.object_state_to_rigid_transform import (
+    ObjectStateToRigidTransform,
+)
 from planning_through_contact.simulation.systems.rigid_transform_to_planar_pose_vector_system import (
     RigidTransformToPlanarPoseVectorSystem,
+)
+from planning_through_contact.simulation.systems.robot_state_to_planar_velocity import (
+    RobotStateToPlanarVelocity,
 )
 from planning_through_contact.simulation.systems.robot_state_to_rigid_transform import (
     RobotStateToRigidTransform,
@@ -46,6 +59,12 @@ from planning_through_contact.simulation.systems.robot_state_to_rigid_transform 
 from planning_through_contact.visualize.colors import COLORS
 
 logger = logging.getLogger(__name__)
+
+
+class DesiredPositionSourceType(Enum):
+    GAMEPAD = "gamepad"
+    GCS_PLANNER = "gcs_planner"
+    DIFFUSION_POLICY = "diffusion_policy"
 
 
 class SimulatedRealTableEnvironment:
@@ -58,6 +77,14 @@ class SimulatedRealTableEnvironment:
         arbitrary_shape_pickle_path: Optional[str] = None,
     ):
         self._desired_position_source = desired_position_source
+        if isinstance(desired_position_source, DiffusionPolicySource):
+            self._desired_position_source_type = DesiredPositionSourceType.DIFFUSION_POLICY
+        elif isinstance(desired_position_source, GcsPlannerSource):
+            self._desired_position_source_type = DesiredPositionSourceType.GCS_PLANNER
+        elif isinstance(desired_position_source, GamepadControllerSource):
+            self._desired_position_source_type = DesiredPositionSourceType.GAMEPAD
+        else:
+            raise ValueError(f"Invalid desired position source type: {type(desired_position_source)}")
         self._robot_system = robot_system
         self._sim_config = sim_config
         self._meshcat = station_meshcat
@@ -88,13 +115,40 @@ class SimulatedRealTableEnvironment:
             self._robot_system,
         )
 
-        self._robot_state_to_rigid_transform = builder.AddNamedSystem(
-            "RobotStateToRigidTransform",
-            RobotStateToRigidTransform(
-                self._plant,
-                self._robot_system.robot_model_name,
-            ),
-        )
+        # Create state-to-pose transform systems only if needed by the position source
+        self._robot_state_to_rigid_transform = None
+        self._object_state_to_rigid_transform = None
+        self._robot_state_to_planar_velocity = None
+
+        if self._desired_position_source_type in [
+            DesiredPositionSourceType.GCS_PLANNER,
+            DesiredPositionSourceType.DIFFUSION_POLICY,
+        ]:
+            self._robot_state_to_rigid_transform = builder.AddNamedSystem(
+                "RobotStateToRigidTransform",
+                RobotStateToRigidTransform(
+                    self._plant,
+                    self._robot_system.robot_model_name,
+                ),
+            )
+
+        if self._desired_position_source_type == DesiredPositionSourceType.GCS_PLANNER:
+            self._object_state_to_rigid_transform = builder.AddNamedSystem(
+                "ObjectStateToRigidTransform",
+                ObjectStateToRigidTransform(
+                    self._plant,
+                    self._robot_system.slider_model_name,
+                ),
+            )
+
+            self._robot_state_to_planar_velocity = builder.AddNamedSystem(
+                "RobotStateToPlanarVelocity",
+                RobotStateToPlanarVelocity(
+                    self._plant,
+                    self._robot_system.robot_model_name,
+                    end_effector_frame_name="pusher",
+                ),
+            )
 
         self._meshcat = self._robot_system.get_meshcat()
 
@@ -102,17 +156,46 @@ class SimulatedRealTableEnvironment:
         ### Connect systems
         ################################################################################################################
 
-        # Connect PositionController to RobotStateToOutputs
-        builder.Connect(
-            self._robot_system.GetOutputPort("robot_state_measured"),
-            self._robot_state_to_rigid_transform.GetInputPort("state"),
-        )
+        # Connect state-to-pose transform systems if they were created
+        if self._robot_state_to_rigid_transform is not None:
+            builder.Connect(
+                self._robot_system.GetOutputPort("robot_state_measured"),
+                self._robot_state_to_rigid_transform.GetInputPort("state"),
+            )
+
+        if self._object_state_to_rigid_transform is not None:
+            builder.Connect(
+                self._robot_system.GetOutputPort("object_state_measured"),
+                self._object_state_to_rigid_transform.GetInputPort("state"),
+            )
+
+        if self._robot_state_to_planar_velocity is not None:
+            builder.Connect(
+                self._robot_system.GetOutputPort("robot_state_measured"),
+                self._robot_state_to_planar_velocity.GetInputPort("state"),
+            )
 
         # Inputs to desired position source
-        if self._desired_position_source.HasInputPort("pusher_pose_measured"):
+        if self._robot_state_to_rigid_transform is not None and self._desired_position_source.HasInputPort(
+            "pusher_pose_measured"
+        ):
             builder.Connect(
                 self._robot_state_to_rigid_transform.GetOutputPort("pose"),
                 self._desired_position_source.GetInputPort("pusher_pose_measured"),
+            )
+        if self._object_state_to_rigid_transform is not None and self._desired_position_source.HasInputPort(
+            "slider_pose_measured"
+        ):
+            builder.Connect(
+                self._object_state_to_rigid_transform.GetOutputPort("pose"),
+                self._desired_position_source.GetInputPort("slider_pose_measured"),
+            )
+        if self._robot_state_to_planar_velocity is not None and self._desired_position_source.HasInputPort(
+            "pusher_velocity_measured"
+        ):
+            builder.Connect(
+                self._robot_state_to_planar_velocity.GetOutputPort("planar_velocity"),
+                self._desired_position_source.GetInputPort("pusher_velocity_measured"),
             )
         for camera_config in self._sim_config.camera_configs:
             if self._desired_position_source.HasInputPort(f"rgbd_sensor_{camera_config.name}"):
@@ -142,13 +225,16 @@ class SimulatedRealTableEnvironment:
         ### Add loggers
         ################################################################################################################
 
-        # pusher logger
-        pusher_pose_to_vector = builder.AddSystem(RigidTransformToPlanarPoseVectorSystem())
-        builder.Connect(
-            self._robot_state_to_rigid_transform.GetOutputPort("pose"),
-            pusher_pose_to_vector.get_input_port(),
-        )
-        self._pusher_pose_logger = LogVectorOutput(pusher_pose_to_vector.get_output_port(), builder, 0.01)
+        # pusher logger (only if robot state transform was created)
+        if self._robot_state_to_rigid_transform is not None:
+            pusher_pose_to_vector = builder.AddSystem(RigidTransformToPlanarPoseVectorSystem())
+            builder.Connect(
+                self._robot_state_to_rigid_transform.GetOutputPort("pose"),
+                pusher_pose_to_vector.get_input_port(),
+            )
+            self._pusher_pose_logger = LogVectorOutput(pusher_pose_to_vector.get_output_port(), builder, 0.01)
+        else:
+            self._pusher_pose_logger = None
 
         # slider logger
         pose_selector = builder.AddSystem(Demultiplexer([7, 6]))
@@ -166,8 +252,8 @@ class SimulatedRealTableEnvironment:
         )
         self._slider_pose_logger = LogVectorOutput(slider_pose_to_planar_pose.get_output_port(), builder, 0.01)
 
-        ## Image writers
-        if isinstance(self._desired_position_source, GamepadControllerSource):
+        ## Image writers (only for gamepad controller)
+        if self._desired_position_source_type == DesiredPositionSourceType.GAMEPAD:
             # hardcoded path
             image_writer_dir = "trajectories_rendered/temp"
             image_writers = []
@@ -238,7 +324,11 @@ class SimulatedRealTableEnvironment:
         if slider_pose is not None:
             self.set_slider_planar_pose(slider_pose)  # set slider position
         if pusher_pose is not None:
-            self._desired_position_source.reset(np.array([pusher_pose.x, pusher_pose.y]))  # reset controller
+            if self._desired_position_source_type == DesiredPositionSourceType.GCS_PLANNER and slider_pose is not None:
+                # GCS Planner needs both pusher and slider poses
+                self._desired_position_source.reset(np.array([pusher_pose.x, pusher_pose.y]), slider_pose)
+            else:
+                self._desired_position_source.reset(np.array([pusher_pose.x, pusher_pose.y]))
 
     def visualize_desired_slider_pose(self, time_in_recording: float = 0.0):
         if len(self._goal_geometries) == 0:
@@ -312,12 +402,19 @@ class SimulatedRealTableEnvironment:
                 f.write(res)
 
     def get_button_values(self):
-        if isinstance(self._desired_position_source, GamepadControllerSource):
+        if self._desired_position_source_type == DesiredPositionSourceType.GAMEPAD:
             return self._desired_position_source.get_button_values()
         else:
-            raise NotImplementedError
+            raise NotImplementedError(
+                f"get_button_values() not implemented for position source type: "
+                f"{self._desired_position_source_type.value}"
+            )
 
     def get_pusher_pose_log(self):
+        if self._pusher_pose_logger is None:
+            raise RuntimeError(
+                f"Pusher pose logger not available for position source type: {self._desired_position_source_type.value}"
+            )
         return self._pusher_pose_logger.FindLog(self.context)
 
     def get_slider_pose_log(self):

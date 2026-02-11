@@ -16,6 +16,9 @@ eval/
 wandb/
 *.mp4
 *.sh.log-*
+*.pkl
+*.html
+temp*
 
 
 # Vim

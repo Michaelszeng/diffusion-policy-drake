@@ -8,7 +8,7 @@ from pydrake.systems.framework import Context, LeafSystem
 
 class PusherSliderPoseSelector(LeafSystem):
     """
-    Select the slider pose and spatial velocity and output these.
+    Select the pusher/slider pose and spatial velocity and output these.
     """
 
     def __init__(self, slider_idx: ModelInstanceIndex, pusher_idx: ModelInstanceIndex) -> None:

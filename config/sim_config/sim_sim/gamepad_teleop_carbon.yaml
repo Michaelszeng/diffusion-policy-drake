@@ -101,7 +101,7 @@ physical_properties: # Slider physical properties
   _target_: planning_through_contact.geometry.physical_properties.PhysicalProperties
   mass: 0.1
   inertia: [[1e-5, 0.0, 0.0], [0.0, 1e-5, 0.0], [0.0, 0.0, 1e-5]]
-  center_of_mass: null # [0.0, 0.0, 0.0] # Use null for uniform densit7y
+  center_of_mass: null # [0.0, 0.0, 0.0] # Use null for uniform density
   is_compliant: true
   hydroelastic_modulus: 1.0e6
   mu_dynamic: 0.5

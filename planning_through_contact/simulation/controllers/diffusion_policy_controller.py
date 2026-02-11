@@ -11,9 +11,9 @@ import hydra
 import matplotlib.pyplot as plt
 import numpy as np
 import omegaconf
+import torch
 
 # Diffusion Policy imports
-import torch
 from diffusion_policy.dataset.base_dataset import BaseImageDataset
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
 from pydrake.all import (
@@ -224,7 +224,7 @@ class DiffusionPolicyController(LeafSystem):
             self._last_reset_time = time
             self._received_reset_signal = False
 
-        # Continually update ports until delay is over
+        # Continually update ports during delay period between trials
         if time < self._last_reset_time + self._delay:
             self._update_history(context)
             output.set_value(self._current_action)

@@ -23,10 +23,16 @@ export PATH="/home/$USER/.local/bin:$PATH"
 ```
 
 3. **Modify `pyproject.toml`**:
-For the project to run the diffusion policy, it must have access to the diffusion policy repo as well as a trained model checkpoint. Clone [my diffusion policy repo](https://github.com/Michaelszeng/diffusion-policy-experiments), follow the instructions to run training for the planar pushing example, then modify this line in `pyproject.toml` to point to wherever you cloned your repo:
+For the project to run the diffusion policy, it must have access to the diffusion policy repo as well as a trained model checkpoint. Clone [my diffusion policy repo](https://github.com/Michaelszeng/diffusion-policy-experiments), follow the instructions to run training for the planar pushing example, then modify this line in `pyproject.toml` to point to wherever you cloned the repo:
 
 ```
 diffusion-policy = {path = "/home/michzeng/diffusion-policy", develop = true}
+```
+
+To run the GCS planner (for data generation), the project must have access to my fork of the `planning-through-contact` repository. Clone [my `planning-through-contact` repo](https://github.com/Michaelszeng/planning-through-contact), then modify this line in `pyproject.toml` to point to wherever you cloned the repo:
+
+```
+gcs-planner = {path = "/home/michzeng/planning-through-contact", develop = true}
 ```
 
 4. **If using a custom installation of drake**:
