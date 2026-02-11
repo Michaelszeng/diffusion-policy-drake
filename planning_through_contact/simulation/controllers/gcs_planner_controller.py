@@ -57,6 +57,7 @@ class GcsPlannerController(LeafSystem):
         self._meshcat = meshcat
 
         # Initialize state tracking variables
+        self._traj_start_time = None  # Time when the GCS trajectory execution actually starts (when run_flag goes high)
         self._current_action = np.array([0.0, 0.0])
         self._time = 0.0
         self._last_plan_step = -1  # Integer step index
@@ -111,6 +112,7 @@ class GcsPlannerController(LeafSystem):
         # Check run flag; only start planning when run_flag is 1
         if self.run_flag.Eval(context)[0] == 0:
             output.set_value(self._current_action)
+            self._traj_start_time = None
             return
 
         if self._traj_start_time is None:  # If we haven't started yet, mark start time
