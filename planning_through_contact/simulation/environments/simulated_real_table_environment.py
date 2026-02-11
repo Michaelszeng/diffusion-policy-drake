@@ -256,8 +256,10 @@ class SimulatedRealTableEnvironment:
         self._gcs_action_log = None
         self._gcs_pusher_log = None
         if self._desired_position_source_type == DesiredPositionSourceType.GCS_PLANNER:
-            self._gcs_action_log = self._desired_position_source.GetOutputPort("debug_action")
-            self._gcs_pusher_log = self._desired_position_source.GetOutputPort("debug_pusher_pose")
+            self._gcs_action_log = LogVectorOutput(self._desired_position_source.GetOutputPort("debug_action"), builder)
+            self._gcs_pusher_log = LogVectorOutput(
+                self._desired_position_source.GetOutputPort("debug_pusher_pose"), builder
+            )
 
         ## Image writers (only for gamepad controller)
         if self._desired_position_source_type == DesiredPositionSourceType.GAMEPAD:

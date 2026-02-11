@@ -44,15 +44,13 @@ class GcsPlannerController(LeafSystem):
         sim_config: PlanarPushingSimConfig,
         meshcat: Meshcat = None,
         delay: float = 1.0,
-        freq: float = 2.0,
-        slow_down_factor: float = 1.0,
+        freq: float = 10.0,
         debug: bool = False,
     ):
         super().__init__()
         self._sim_config = sim_config
         self._delay = delay
         self._freq = freq
-        self._slow_down_factor = slow_down_factor
         self._debug = debug
         self._meshcat = meshcat
 
@@ -119,7 +117,7 @@ class GcsPlannerController(LeafSystem):
             self._traj_start_time = _time
 
         # Calculate time based on when run_flag went high
-        time_since_traj_start = (_time - self._traj_start_time) / self._slow_down_factor + 1e-3
+        time_since_traj_start = _time - self._traj_start_time + 1e-3  # +1e-3 to avoid numerical issues
 
         # Get planar poses for Slider and Pusher and velocity of pusher
         current_slider_rigid_transform = self.slider_pose.Eval(context)
@@ -160,11 +158,8 @@ class GcsPlannerController(LeafSystem):
             self.traj.plot_velocity_profile(save_plot=f"temp_vel_profiles/{current_step}")
 
         # Output Action from trajectory prediction
-        time_in_traj_to_retrieve_action = (_time - self._last_plan_time) / self._slow_down_factor + 1e-3
+        time_in_traj_to_retrieve_action = _time - self._last_plan_time
         self._current_action = self.traj.get_pusher_planar_pose(time_in_traj_to_retrieve_action).vector()[:2]
-        formatter = {'float_kind': lambda x: f"{x:.10f}"}
-        print(f"self._current_action: {np.array2string(self._current_action, formatter=formatter)}")
-        print(f"current_pusher_pose: {np.array2string(current_pusher_pose.vector()[:2], formatter=formatter)}")
 
         # Visualize new predicted trajectory using fixed mode sequence in meshcat
         self._visualize_trajectories(self.traj, Rgba(178 / 255, 34 / 255, 34 / 255, 1.0), _time)
