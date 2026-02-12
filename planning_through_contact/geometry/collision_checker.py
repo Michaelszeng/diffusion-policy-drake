@@ -1,5 +1,5 @@
-import pickle
 import time
+from typing import Optional
 
 import numpy as np
 from pydrake.all import (
@@ -17,6 +17,9 @@ from pydrake.all import (
 )
 from pydrake.visualization import AddDefaultVisualization
 
+from planning_through_contact.geometry.collision_geometry.arbitrary_shape_2d import (
+    ArbitraryShape2D,
+)
 from planning_through_contact.geometry.planar.planar_pose import PlanarPose
 
 
@@ -25,10 +28,12 @@ class CollisionChecker:
     Check collisions between 2 bodies
     """
 
-    def __init__(self, pickle_path: str, pusher_radius: float, meshcat: Meshcat):
+    def __init__(self, pickle_path: str, pusher_radius: float, meshcat: Optional[Meshcat] = None):
         """Build a diagram with slider and pusher and a collision checker."""
-        with open(pickle_path, "rb") as f:
-            parts = pickle.load(f)
+        # Use ArbitraryShape2D to load and recenter the geometry
+        # This matches how the simulation loads the geometry (centering COM)
+        self.shape_spec = ArbitraryShape2D(pickle_path)
+        parts = self.shape_spec.primitive_boxes
 
         builder = DiagramBuilder()
         plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=0.0)
@@ -88,7 +93,6 @@ class CollisionChecker:
         self._set_pose(self.model_B, self.body_B, X_WB)
         # Force a publish so Meshcat updates immediately.
         self.diagram.ForcedPublish(self.context)
-        time.sleep(0.5)
 
     def _set_pose(self, model, body, X_WB):
         q = X_WB.to_generalized_coords(0, z_axis_is_positive=True)
@@ -102,7 +106,13 @@ class CollisionChecker:
         query_object = self.scene_graph.get_query_output_port().Eval(
             self.scene_graph.GetMyContextFromRoot(self.context)
         )
-        inspector = query_object.inspector()
+        # inspector = query_object.inspector()
+
+        # # Compute signed distances if desired
+        # dists = query_object.ComputeSignedDistancePairwiseClosestPoints(max_distance=10.0)
+        # min_dist = min([d.distance for d in dists]) if len(dists) > 0 else float("inf")
+        # print(f"Signed distance: {min_dist}")
+
         penetrations = query_object.ComputePointPairPenetration()
         # print(
         #     f"collisions: {[f'{inspector.GetName(pen.id_A)}, {inspector.GetName(pen.id_B)}' for pen in penetrations]}"
@@ -118,19 +128,25 @@ if __name__ == "__main__":
     meshcat = StartMeshcat()
     checker = CollisionChecker("arbitrary_shape_pickles/small_t_pusher.pkl", 0.015, meshcat)
 
-    # Pose A at origin; slide B along +x while visualizing and reporting collisions.
+    # Pose A at origin; slide B using meshcat sliders while visualizing and reporting collisions.
     X_WA = PlanarPose(0, 0, 0)  # identity
-    y_offset = 0.0
 
-    for x in np.linspace(-0.20, 0.20, 81):
-        X_WB = PlanarPose(x, y_offset, 0)
+    meshcat.AddSlider("pusher_x", -0.5, 0.5, 0.0001, -0.2)
+    meshcat.AddSlider("pusher_y", -0.5, 0.5, 0.0001, 0.0)
+
+    print("Open Meshcat to control the pusher position.")
+
+    while True:
+        x = meshcat.GetSliderValue("pusher_x")
+        y = meshcat.GetSliderValue("pusher_y")
+
+        X_WB = PlanarPose(x, y, 0)
 
         # Update visualization immediately
-        if x < 0.0:
-            checker.visualize_once(X_WA, X_WB)
+        checker.visualize_once(X_WA, X_WB)
 
         # Collision status
         colliding = checker.check_collision(X_WA, X_WB)
-        print(f"x={x:+.3f}  colliding={colliding}")
+        print(f"x={x:+.3f} y={y:+.3f} colliding={colliding}")
 
-        time.sleep(0.1)
+        time.sleep(0.05)
