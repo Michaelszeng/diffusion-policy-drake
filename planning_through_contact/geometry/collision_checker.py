@@ -108,9 +108,9 @@ class CollisionChecker:
         )
         # inspector = query_object.inspector()
 
-        # # Compute signed distances if desired
-        # dists = query_object.ComputeSignedDistancePairwiseClosestPoints(max_distance=10.0)
-        # min_dist = min([d.distance for d in dists]) if len(dists) > 0 else float("inf")
+        # Compute signed distances if desired
+        dists = query_object.ComputeSignedDistancePairwiseClosestPoints(max_distance=10.0)
+        min_dist = min([d.distance for d in dists]) if len(dists) > 0 else float("inf")
         # print(f"Signed distance: {min_dist}")
 
         penetrations = query_object.ComputePointPairPenetration()

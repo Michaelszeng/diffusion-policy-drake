@@ -149,11 +149,11 @@ class IiwaPlanner(LeafSystem):
         times = context.get_abstract_state(self._times_index).get_value()
 
         if mode == IiwaPlannerMode.PLAN_GO_PUSH_START:
-            if context.get_time() > times["initial"]:
+            if context.get_time() >= times["initial"]:
                 self.PlanGoPushStart(context, state)
             return
         elif mode == IiwaPlannerMode.GO_PUSH_START:
-            if current_time > times["go_push_start_final"]:
+            if current_time >= times["go_push_start_final"]:
                 # We have reached the end of the GoPushStart trajectory.
                 state.get_mutable_abstract_state(int(self._mode_index)).set_value(IiwaPlannerMode.WAIT_PUSH)
                 logger.debug(f"Switching to WAIT_PUSH mode at time {current_time}.")
@@ -161,7 +161,7 @@ class IiwaPlanner(LeafSystem):
                 # logger.debug(f"Current position: {current_pos}")
             return
         elif mode == IiwaPlannerMode.WAIT_PUSH:
-            if current_time > times["wait_push_final"]:
+            if current_time >= times["wait_push_final"]:
                 # We have reached the end of the GoPushStart trajectory.
                 state.get_mutable_abstract_state(int(self._mode_index)).set_value(IiwaPlannerMode.PUSHING)
                 logger.debug(f"Switching to PUSHING mode at time {current_time}.")
