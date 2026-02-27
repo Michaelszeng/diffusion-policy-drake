@@ -8,7 +8,9 @@ matplotlib.use("WebAgg")
 
 import numpy as np
 from gcs_planar_pushing.experiments.utils import get_default_plan_config, get_default_solver_params
-from gcs_planar_pushing.geometry.planar.planar_pushing_trajectory import PlanarPushingTrajectory
+from gcs_planar_pushing.geometry.planar.planar_pushing_trajectory import (
+    PlanarPushingTrajectory,
+)
 
 # GCS Planner imports
 from gcs_planar_pushing.planning.planar.mpc import PlanarPushingMPC
@@ -48,6 +50,7 @@ class GcsPlannerController(LeafSystem):
         meshcat: Meshcat = None,
         delay: float = 1.0,
         freq: float = 10.0,
+        # freq: float = 0.001,
         debug: bool = False,
     ):
         super().__init__()
@@ -84,9 +87,6 @@ class GcsPlannerController(LeafSystem):
         self.planner_config = config
         solver_params = get_default_solver_params()
         self.solver_params = solver_params
-        self.solver_params.nonl_round_major_feas_tol = 1e-5
-        self.solver_params.nonl_round_minor_feas_tol = 1e-5
-        self.solver_params.nonl_round_opt_tol = 1e-5
         self.traj = None
 
         # Input port for pusher pose
@@ -157,16 +157,15 @@ class GcsPlannerController(LeafSystem):
             self._last_plan_time = _time
             self._last_plan_step = current_step
             print(f"Sim time: {_time:.4f}s | Current step: {current_step}")
-            print(f"time_since_traj_start: {time_since_traj_start:.4f}")
             # print(f"    current_slider_pose: {current_slider_pose}")
             # print(f"    current_pusher_pose: {current_pusher_pose}")
-            if current_pusher_vel is not None:
-                print(f"    current_pusher_vel: {current_pusher_vel} (magnitude: {np.linalg.norm(current_pusher_vel)})")
+            # if current_pusher_vel is not None:
+            #     print(f"    current_pusher_vel: {current_pusher_vel} (norm: {np.linalg.norm(current_pusher_vel)})")
             start = time.time()
             if self._detected_contact:
                 print("    ******************************* CONTACT DETECTED *******************************")
-            if _time >= 10.0:
-                path = self._gcs_planner.plan(
+            if _time >= 991.7:
+                self.traj = self._gcs_planner.plan(
                     t=time_since_traj_start,
                     current_slider_pose=current_slider_pose,
                     current_pusher_pose=current_pusher_pose,
@@ -174,33 +173,28 @@ class GcsPlannerController(LeafSystem):
                     is_in_contact=self._detected_contact,
                     save_video=True,
                     save_unrounded_video=True,
-                    output_folder="temp_videos",
+                    output_folder="temp_videos_seed=1",
                     output_name=f"traj_{current_step}",
+                    # rounded=not self._detected_contact,
+                    rounded=True,
                 )
             else:
-                path = self._gcs_planner.plan(
+                self.traj = self._gcs_planner.plan(
                     t=time_since_traj_start,
                     current_slider_pose=current_slider_pose,
                     current_pusher_pose=current_pusher_pose,
                     current_pusher_velocity=current_pusher_vel,
                     is_in_contact=self._detected_contact,
+                    # rounded=not self._detected_contact,
+                    rounded=True,
                 )
             self._detected_contact = False  # Reset contact detection flag
             print(f"    GCS Planner planning time: {time.time() - start:.3f}s")
 
-            if path is None:
-                print("    WARNING: GCS fail. Falling back to previous trajectory.")
-            else:
-                # TODO: converting PlanarPushingPath to a PlanarPushingTrajectory with path.to_traj() takes ~0.05 sec
-                # (which is a lot), so we should try to avoid doing this.
-                self.traj = path.to_traj(rounded=True)
-                initial_vel = self.traj.get_pusher_velocity(self.traj.start_time)
-                print(f"    traj initial vel: {np.array2string(initial_vel, precision=6)}")
-                self.traj.plot_velocity_profile(save_plot=f"temp_vel_profiles/{current_step}")
-
-                self._pusher_penetration_offset = (
-                    self.traj.get_pusher_planar_pose(0).vector()[:2] - current_pusher_pose.vector()[:2]
-                )  # Difference between current pusher pose and plan's initial pusher pose
+            self._pusher_penetration_offset = (
+                self.traj.get_pusher_planar_pose(0).vector()[:2] - current_pusher_pose.vector()[:2]
+            )  # Difference between current pusher pose and plan's initial pusher pose
+            print(f"    pusher_penetration_offset: {self._pusher_penetration_offset}")
 
         # Output Action from trajectory prediction
         time_in_traj_to_retrieve_action = _time - self._last_plan_time + EXECUTION_LATENCY
@@ -208,9 +202,11 @@ class GcsPlannerController(LeafSystem):
             self.traj.get_pusher_planar_pose(time_in_traj_to_retrieve_action).vector()[:2]
             - self._pusher_penetration_offset
         )
+        # print(f"    current_action: {self._current_action}")
 
         # Visualize new predicted trajectory using fixed mode sequence in meshcat
-        self._visualize_trajectories(self.traj, Rgba(178 / 255, 34 / 255, 34 / 255, 1.0), _time)
+        if self.traj is not None:
+            self._visualize_trajectories(self.traj, Rgba(178 / 255, 34 / 255, 34 / 255, 1.0), _time)
 
         # Obtain and output current action from trajectory prediction
         output.set_value(self._current_action)
@@ -246,12 +242,12 @@ class GcsPlannerController(LeafSystem):
         print(f"pusher_initial_pose: {self._sim_config.pusher_start_pose}")
         print(f"slider_target_pose: {self._sim_config.slider_goal_pose}")
         print(f"pusher_target_pose: {self._sim_config.pusher_start_pose}")
-        print("... Creating GCS Plan...", flush=True)
+        print("... Creating GCS Plan ...", flush=True)
 
         # For ease of testing, load cached path if it exists (else compute fresh path and cache it)
         CACHE_PATH = (
             f"mpc_path_cache_{new_slider_start_pose.x:.2f}_"
-            f"{new_slider_start_pose.y:.2f}_{new_slider_start_pose.theta:.2f}_INTEGRATION_CONSTANT_0_5.pkl"
+            f"{new_slider_start_pose.y:.2f}_{new_slider_start_pose.theta:.2f}.pkl"
         )
         if os.path.exists(CACHE_PATH):
             print(f"Loading cached path from {CACHE_PATH}")
