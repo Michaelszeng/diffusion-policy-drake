@@ -164,7 +164,7 @@ class GcsPlannerController(LeafSystem):
             start = time.time()
             if self._detected_contact:
                 print("    ******************************* CONTACT DETECTED *******************************")
-            if _time >= 991.7:
+            if _time >= 99.4:
                 self.traj = self._gcs_planner.plan(
                     t=time_since_traj_start,
                     current_slider_pose=current_slider_pose,
@@ -173,7 +173,7 @@ class GcsPlannerController(LeafSystem):
                     is_in_contact=self._detected_contact,
                     save_video=True,
                     save_unrounded_video=True,
-                    output_folder="temp_videos_seed=1",
+                    output_folder="temp_videos_seed_double_plan",
                     output_name=f"traj_{current_step}",
                     # rounded=not self._detected_contact,
                     rounded=False,
@@ -256,7 +256,7 @@ class GcsPlannerController(LeafSystem):
                 start_and_goal,
                 self.solver_params,
                 self._freq,
-                # double_plan=True,
+                double_plan=True,
                 plan=False,
                 output_folder="trajectories_mpc",
                 output_name=f"arbitrary_small_t_pusher_trajectory_ORIGINAL_{new_slider_start_pose.x:.2f}_"
@@ -272,7 +272,7 @@ class GcsPlannerController(LeafSystem):
                 start_and_goal,
                 self.solver_params,
                 self._freq,
-                # double_plan=True,
+                double_plan=True,
                 plan=True,
                 output_folder="trajectories_mpc",
                 output_name=f"arbitrary_small_t_pusher_trajectory_ORIGINAL_{new_slider_start_pose.x:.2f}_"

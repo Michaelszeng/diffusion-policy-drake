@@ -183,6 +183,7 @@ class IiwaHardwareStation(RobotSystemBase):
                         rot_tol=sim_config.multi_run_config.rot_tol,
                         evaluate_final_slider_rotation=True,
                         evaluate_final_pusher_position=True,
+                        pusher_pos_tol=sim_config.multi_run_config.pusher_pos_tol,
                     )
                 )
 

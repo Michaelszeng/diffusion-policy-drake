@@ -66,6 +66,7 @@ class SimEvaluator:
             rot_tol,
             self.multi_run_config.evaluate_final_slider_rotation,
             self.multi_run_config.evaluate_final_pusher_position,
+            pusher_pos_tol=self.multi_run_config.pusher_pos_tol,
         )
 
     def _check_success_convex_hull(self):

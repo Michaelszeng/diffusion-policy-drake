@@ -44,6 +44,7 @@ class MultiRunConfig:
         workspace_height: float,
         trans_tol: float = 0.01,
         rot_tol: float = 0.01,  # degrees
+        pusher_pos_tol: float = 0.04,
         evaluate_final_pusher_position: bool = True,
         evaluate_final_slider_rotation: bool = True,
         success_criteria: str = "tolerance",
@@ -67,6 +68,7 @@ class MultiRunConfig:
         self.max_attempt_duration = max_attempt_duration
         self.trans_tol = trans_tol
         self.rot_tol = rot_tol
+        self.pusher_pos_tol = pusher_pos_tol
         self.evaluate_final_pusher_position = evaluate_final_pusher_position
         self.evaluate_final_slider_rotation = evaluate_final_slider_rotation
         self.success_criteria = success_criteria
@@ -90,6 +92,7 @@ class MultiRunConfig:
             and self.max_attempt_duration == other.max_attempt_duration
             and self.trans_tol == other.trans_tol
             and self.rot_tol == other.rot_tol
+            and self.pusher_pos_tol == other.pusher_pos_tol
             and self.evaluate_final_pusher_position == other.evaluate_final_pusher_position
             and self.evaluate_final_slider_rotation == other.evaluate_final_slider_rotation
             and self.success_criteria == other.success_criteria

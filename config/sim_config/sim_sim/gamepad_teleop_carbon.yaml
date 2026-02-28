@@ -218,8 +218,9 @@ multi_run_config:
   workspace_width: 0.4
   workspace_height: 0.3
   # Success criteria
-  trans_tol: 0.015 # tol for pusher is 1.5x higher
+  trans_tol: 0.015
   rot_tol: 3.5 # degrees
+  pusher_pos_tol: 0.04
   evaluate_final_pusher_position: true
   evaluate_final_slider_rotation: true
   success_criteria: 'tolerance' # 'tolerance' or 'convex_hull'

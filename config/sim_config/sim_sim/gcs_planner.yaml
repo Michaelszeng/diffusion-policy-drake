@@ -2,7 +2,7 @@ defaults:
   - _self_
   - hydra: base_hydra
 
-SEED: 3
+SEED: 1
 meshcat_port: 7000
 collect_data: false
 
@@ -41,7 +41,7 @@ draw_frames: true
 use_realtime: true
 delay_before_execution: 2.0
 save_plots: false
-save_gcs_videos: true
+save_gcs_videos: true  # Save videos of original GCS plan
 gamepad:
   translation_scale: 5.75e-5
   deadzone: 0.01
@@ -121,8 +121,10 @@ multi_run_config:
   workspace_width: 0.4
   workspace_height: 0.3
   # Success criteria
-  trans_tol: 0.015 # tol for pusher is 1.5x higher
-  rot_tol: 3.5 # degrees
+  # Use intentionally tolerances since we use this config for data collection
+  trans_tol: 0.01
+  rot_tol: 2.5 # degrees
+  pusher_pos_tol: 0.01
   evaluate_final_pusher_position: true
   evaluate_final_slider_rotation: true
   success_criteria: 'tolerance' # 'tolerance' or 'convex_hull'
