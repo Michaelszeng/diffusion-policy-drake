@@ -176,7 +176,7 @@ class GcsPlannerController(LeafSystem):
                     output_folder="temp_videos_seed=1",
                     output_name=f"traj_{current_step}",
                     # rounded=not self._detected_contact,
-                    rounded=True,
+                    rounded=False,
                 )
             else:
                 self.traj = self._gcs_planner.plan(
@@ -186,7 +186,7 @@ class GcsPlannerController(LeafSystem):
                     current_pusher_velocity=current_pusher_vel,
                     is_in_contact=self._detected_contact,
                     # rounded=not self._detected_contact,
-                    rounded=True,
+                    rounded=False,
                 )
             self._detected_contact = False  # Reset contact detection flag
             print(f"    GCS Planner planning time: {time.time() - start:.3f}s")
@@ -246,8 +246,8 @@ class GcsPlannerController(LeafSystem):
 
         # For ease of testing, load cached path if it exists (else compute fresh path and cache it)
         CACHE_PATH = (
-            f"mpc_path_cache_{new_slider_start_pose.x:.2f}_"
-            f"{new_slider_start_pose.y:.2f}_{new_slider_start_pose.theta:.2f}.pkl"
+            f"mpc_path_cache_{new_slider_start_pose.x:.6f}_"
+            f"{new_slider_start_pose.y:.6f}_{new_slider_start_pose.theta:.6f}.pkl"
         )
         if os.path.exists(CACHE_PATH):
             print(f"Loading cached path from {CACHE_PATH}")
@@ -255,7 +255,14 @@ class GcsPlannerController(LeafSystem):
                 self.planner_config,
                 start_and_goal,
                 self.solver_params,
+                self._freq,
+                # double_plan=True,
                 plan=False,
+                output_folder="trajectories_mpc",
+                output_name=f"arbitrary_small_t_pusher_trajectory_ORIGINAL_{new_slider_start_pose.x:.2f}_"
+                f"{new_slider_start_pose.y:.2f}_{new_slider_start_pose.theta:.2f}",
+                save_video=self._sim_config.save_gcs_videos,
+                interpolate_video=self._sim_config.save_gcs_videos,
             )
             self._gcs_planner.load_original_path(CACHE_PATH)
         else:
@@ -264,7 +271,14 @@ class GcsPlannerController(LeafSystem):
                 self.planner_config,
                 start_and_goal,
                 self.solver_params,
+                self._freq,
+                # double_plan=True,
                 plan=True,
+                output_folder="trajectories_mpc",
+                output_name=f"arbitrary_small_t_pusher_trajectory_ORIGINAL_{new_slider_start_pose.x:.2f}_"
+                f"{new_slider_start_pose.y:.2f}_{new_slider_start_pose.theta:.2f}",
+                save_video=self._sim_config.save_gcs_videos,
+                interpolate_video=self._sim_config.save_gcs_videos,
             )
             self._gcs_planner.original_path.save(CACHE_PATH)
 

@@ -1,21 +1,18 @@
 import importlib
+import math
 import os
 import pathlib
-import pickle
 import random
 import shutil
 import traceback
-from typing import Optional
 
+import cv2
 import hydra
 import numpy as np
 from omegaconf import OmegaConf
 from pydrake.all import StartMeshcat
 
 from planning_through_contact.geometry.collision_checker import CollisionChecker
-from planning_through_contact.simulation.controllers.gcs_planner_controller import (
-    plot_gcs_controller_logs,
-)
 from planning_through_contact.simulation.controllers.gcs_planner_source import (
     GcsPlannerSource,
 )
@@ -28,18 +25,21 @@ from planning_through_contact.simulation.environments.simulated_real_table_envir
 from planning_through_contact.simulation.planar_pushing_sim_config import (
     PlanarPushingSimConfig,
 )
+from planning_through_contact.simulation.sim_eval_utils import (
+    MeshcatRecordingManager,
+    SimEvaluator,
+)
 from planning_through_contact.simulation.sim_utils import (
     get_slider_initial_pose_within_workspace,
 )
 from planning_through_contact.utils import file_lock
 from planning_through_contact.visualize.analysis import (
-    CombinedPlanarPushingLogs,
     PlanarPushingLog,
 )
 
 
 class SimSimGcsPlanner:
-    def __init__(self, cfg: OmegaConf):
+    def __init__(self, cfg: OmegaConf, ONLY_1_TRIAL: bool = True, collect_data: bool = False):
         station_meshcat = StartMeshcat()
 
         # load sim_config
@@ -95,89 +95,138 @@ class SimSimGcsPlanner:
         )
         self.environment.export_diagram("sim_sim_environment.svg")
 
+        self.evaluator = SimEvaluator(self.environment, self.sim_config, self.multi_run_config)
+
+        self.collect_data = collect_data
+        self.only_one_trial = ONLY_1_TRIAL and not collect_data
         self.traj_start_time = 0.0
         self.num_saved_trajectories = 0
         self.num_completed_trials = 0
+        self._collected_episodes = []
+        self._camera_info = {}
+        if self.collect_data:
+            for key, meta in cfg.data_collection_config.shape_meta.obs.items():
+                if meta.get("type") == "rgb":
+                    self._camera_info[key] = list(meta.shape)
 
-        self.reset_environment(0)
-
-    def simulate_environment(
+    def run(
         self,
-        end_time: float = float("inf"),
-        recording_file: Optional[str] = None,
     ):
-        # Loop variables
+        num_runs = 1 if self.only_one_trial else self.multi_run_config.num_runs
+        max_duration = self.multi_run_config.max_attempt_duration
+
+        success_count = 0
+        failure_count = 0
+        error_count = 0
+
+        # Get current time from simulator
+        current_time = self.environment._simulator.get_context().get_time()
         time_step = self.sim_config.time_step * 10
-        t = time_step
-        meshcat = self.environment._meshcat
-        recording_stopped = False
 
-        validated_image_writer = False
+        output_dir = self.cfg.get("output_dir", ".")
+        recorder = MeshcatRecordingManager(
+            meshcat=self.environment._meshcat,
+            environment=self.environment,
+            num_trials_to_record=self.multi_run_config.num_trials_to_record,
+            total_runs=num_runs,
+            output_dir=output_dir,
+            file_prefix="gcs_planner",
+        )
+        recorder.start()
 
-        # Start meshcat recording
-        if self.multi_run_config.num_trials_to_record > 0:
-            meshcat.StartRecording(frames_per_second=10)
+        if self.collect_data:
+            capture_dt = 1.0 / self.cfg.data_collection_config.policy_freq
 
-        try:
-            # Simulate
-            self.environment.visualize_desired_slider_pose()
-            self.environment.visualize_desired_pusher_pose()
-            while t < end_time:
-                self.environment._simulator.AdvanceTo(t)
+        for trial_idx in range(num_runs):
+            print(f"\n{'=' * 20} Trial {trial_idx} {'=' * 20}")
+            self.traj_start_time = current_time
+            trial_success = False
+            if self.collect_data:
+                trial_images = {name: [] for name in self._camera_info}
 
-                # # Validate image writer directory
-                # if t > 0.2 and not validated_image_writer:
-                #     self.validate_image_writer_dir()
-                #     validated_image_writer = True
+            try:
+                self.reset_environment(trial_idx)
+                self.environment.visualize_desired_slider_pose(current_time)
+                self.environment.visualize_desired_pusher_pose(current_time)
 
-                # Check if we should stop recording after num_trials_to_record
-                if (
-                    self.num_completed_trials >= self.multi_run_config.num_trials_to_record
-                    and self.multi_run_config.num_trials_to_record > 0
-                    and not recording_stopped
-                ):
-                    meshcat.StopRecording()
-                    recording_stopped = True
-                    if recording_file:
-                        self.environment.save_recording(recording_file, os.path.dirname(recording_file))
-                    else:
-                        # Default recording file name
-                        output_dir = self.cfg.get("output_dir", ".")
-                        self.environment.save_recording("gcs_planner.html", output_dir)
+                # Reset traj_start_time in controller so it treats this as a new start
+                # We need to access the controller instance
+                # GcsPlannerSource is a Diagram, but it has _gcs_planner as a member
+                # environment._desired_position_source is the GcsPlannerSource
+                controller = self.environment._desired_position_source._gcs_planner
+                controller._traj_start_time = None
 
-                # Loop updates
-                t += time_step
-                t = round(t / time_step) * time_step
+                # Capture initial image (t=0) before simulation advances
+                if self.collect_data:
+                    for cam_name in self._camera_info:
+                        trial_images[cam_name].append(self._capture_camera_image(cam_name))
+                    next_capture_time = current_time + capture_dt
 
-        except Exception as e:
-            print(f"Error during simulation: {e}")
-            traceback.print_exc()
-            raise
-        finally:
-            # Ensure recording is saved even if there's an error
-            if self.multi_run_config.num_trials_to_record > 0 and not recording_stopped:
-                try:
-                    meshcat.StopRecording()
-                    if recording_file:
-                        self.environment.save_recording(recording_file, os.path.dirname(recording_file))
-                    else:
-                        # Default recording file name
-                        output_dir = self.cfg.get("meshcat_recording_output_dir", ".")
-                        self.environment.save_recording("gcs_planner.html", output_dir)
-                        print(f"Saved recording to {output_dir}/gcs_planner.html")
-                except Exception as save_error:
-                    print(f"Error saving recording: {save_error}")
+                # Run trial
+                trial_end_time = current_time + max_duration
+                trial_done = False
+                while current_time < trial_end_time:
+                    # Advance simulation
+                    current_time += time_step
+                    # Rounding to avoid precision issues
+                    current_time = round(current_time / time_step) * time_step
+
+                    self.environment._simulator.AdvanceTo(current_time)
+
+                    if self.collect_data and current_time >= next_capture_time - 1e-6:
+                        for cam_name in self._camera_info:
+                            trial_images[cam_name].append(self._capture_camera_image(cam_name))
+                        next_capture_time += capture_dt
+
+                    # Check success
+                    if self.evaluator.check_success():
+                        success_count += 1
+                        trial_success = True
+                        print(f"Trial {trial_idx} Result: SUCCESS")
+                        trial_done = True
+                        break
+
+                    # Check failure
+                    failure, mode = self.evaluator.check_failure(current_time, self.traj_start_time)
+                    if failure:
+                        failure_count += 1
+                        print(f"Trial {trial_idx} Result: {mode.value}")
+                        trial_done = True
+                        break
+
+                if not trial_done:
+                    # If we exited loop due to timeout (current_time >= trial_end_time)
+                    # and check_failure didn't catch it yet (or we want to be explicit)
+                    failure_count += 1
+                    print(f"Trial {trial_idx} Result: TIMEOUT")
+
+            except Exception as e:
+                # Check if we succeeded despite the error (e.g. planner failed because we are at goal)
+                # This often happens with GCS planner when the start and goal are very close
+                if self.evaluator.check_success():
+                    success_count += 1
+                    trial_success = True
+                    print(f"Trial {trial_idx} Result: SUCCESS (ended with error: {e})")
+                else:
+                    error_count += 1
+                    print(f"Trial {trial_idx} Result: ERROR - {e}")
                     traceback.print_exc()
+                # Continue to next trial
 
-            # Plot GCS controller logs
-            action_log, pusher_log = self.environment.get_gcs_planner_logs()
-            if action_log is not None:
-                print("Plotting GCS logs...")
-                plot_gcs_controller_logs(action_log, pusher_log, self.environment.context)
+            if self.collect_data and trial_success:
+                episode = self._extract_trial_data(trial_images)
+                if episode is not None:
+                    self._collected_episodes.append(episode)
 
-            # # Delete temporary image writer directory
-            # if os.path.exists("trajectories_rendered/temp"):
-            #     shutil.rmtree("trajectories_rendered/temp")
+            self.num_completed_trials += 1
+            print(f"Running Stats: Success={success_count}, Failure={failure_count}, Error={error_count}")
+
+            recorder.on_trial_complete()
+
+        recorder.finalize()
+
+        if self.collect_data:
+            self._save_to_zarr()
 
     def reset_environment(self, trial_idx: int):
         """
@@ -198,84 +247,6 @@ class SimSimGcsPlanner:
             self.pusher_start_pose,
         )
 
-    def save_trajectory(self):
-        traj_dir = self.create_trajectory_dir()
-
-        # Move images from temp to traj_dir
-        initial_image_id = int(round(self.traj_start_time, 2) * 1000)
-        for camera in os.listdir("trajectories_rendered/temp"):
-            camera_dir = f"trajectories_rendered/temp/{camera}"
-            for file in os.listdir(camera_dir):
-                image_id = int(file.split(".")[0])
-                if image_id >= initial_image_id:
-                    new_image_name = f"{image_id - initial_image_id}.png"
-                    shutil.move(f"{camera_dir}/{file}", f"{traj_dir}/{camera}/{new_image_name}")
-
-        # Create combined_logs.pkl file
-        pusher_log = self.environment.get_pusher_pose_log()
-        pusher_desired = self.get_planar_pushing_log(pusher_log, self.traj_start_time)
-        slider_log = self.environment.get_slider_pose_log()
-        slider_desired = self.get_planar_pushing_log(slider_log, self.traj_start_time)
-
-        combined_logs = CombinedPlanarPushingLogs(
-            pusher_desired=pusher_desired,
-            slider_desired=slider_desired,
-            pusher_actual=None,
-            slider_actual=None,
-        )
-
-        # Save combined_logs.pkl
-        with open(f"{traj_dir}/combined_logs.pkl", "wb") as f:
-            pickle.dump(combined_logs, f)
-
-        self.clear_image_writer_dir()
-        self.reset_environment(self.num_saved_trajectories)
-        self.num_saved_trajectories += 1
-        self.num_completed_trials += 1
-
-    def delete_trajectory(self):
-        self.clear_image_writer_dir()
-        self.reset_environment(self.num_saved_trajectories)
-        self.num_completed_trials += 1
-
-    def create_trajectory_dir(self):
-        rendered_plans_dir = self.cfg.data_collection_config.rendered_plans_dir
-        if not os.path.exists(rendered_plans_dir):
-            os.makedirs(rendered_plans_dir)
-
-        # Find the next available trajectory index
-        traj_idx = 0
-        for path in os.listdir(rendered_plans_dir):
-            if os.path.isdir(os.path.join(rendered_plans_dir, path)):
-                traj_idx += 1
-
-        # Setup the current directory
-        os.makedirs(f"{rendered_plans_dir}/{traj_idx}")
-        for camera in os.listdir("trajectories_rendered/temp"):
-            os.makedirs(f"{rendered_plans_dir}/{traj_idx}/{camera}")
-        open(f"{rendered_plans_dir}/{traj_idx}/log.txt", "w").close()
-        return f"{rendered_plans_dir}/{traj_idx}"
-
-    def clear_image_writer_dir(self):
-        # remove all files in trajectories_temp/{camera}
-        for camera in os.listdir("trajectories_rendered/temp"):
-            camera_dir = f"trajectories_rendered/temp/{camera}"
-            for file in os.listdir(camera_dir):
-                os.remove(f"{camera_dir}/{file}")
-
-    def validate_image_writer_dir(self):
-        # Asserts that image writers are aligned to context time 0.0
-        valid = True
-        for camera in os.listdir("trajectories_rendered/temp"):
-            if not os.path.exists(f"trajectories_rendered/temp/{camera}/0.png"):
-                valid = False
-                break
-
-        if not valid:
-            print_blue("Exiting: image writer directory not aligned to context time 0.0.")
-            print_blue("Please restart the script.")
-            exit(1)
-
     def get_planar_pushing_log(self, vector_log, traj_start_time):
         start_idx = 0
         sample_times = vector_log.sample_times()
@@ -295,6 +266,118 @@ class SimSimGcsPlanner:
             lam_dot=nan_array,
         )
 
+    def _capture_camera_image(self, camera_name):
+        """Capture an RGB image from the named camera, resized to shape_meta dimensions."""
+        port = self.environment._robot_system.GetOutputPort(f"rgbd_sensor_{camera_name}")
+        rgba = port.Eval(self.environment.robot_system_context).data.copy()
+        rgb = rgba[:, :, :3]
+        target_h, target_w = self._camera_info[camera_name][1], self._camera_info[camera_name][2]
+        if rgb.shape[0] != target_h or rgb.shape[1] != target_w:
+            rgb = cv2.resize(rgb, (target_w, target_h))
+        return rgb
+
+    def _extract_trial_data(self, trial_images=None):
+        """Extract state/action/target/image arrays from the current trial's logs, resampled at policy_freq."""
+        dc_cfg = self.cfg.data_collection_config
+        freq = dc_cfg.policy_freq
+        dt = 1.0 / freq
+
+        pusher_log = self.environment.get_pusher_pose_log()
+        pusher = self.get_planar_pushing_log(pusher_log, self.traj_start_time)
+        slider_log = self.environment.get_slider_pose_log()
+        slider = self.get_planar_pushing_log(slider_log, self.traj_start_time)
+
+        t = pusher.t
+        if len(t) < 2:
+            return None
+
+        total_time = math.floor(t[-1] * freq) / freq
+        states, slider_states = [], []
+        current_time = 0.0
+        idx = 0
+
+        while current_time < total_time:
+            idx = _get_closest_index(t, current_time, idx)
+            states.append([pusher.x[idx], pusher.y[idx], pusher.theta[idx]])
+            slider_states.append([slider.x[idx], slider.y[idx], slider.theta[idx]])
+            current_time = round((current_time + dt) * freq) / freq
+
+        # Align state and image counts (may differ by 1 due to timing edge cases)
+        n = len(states)
+        if trial_images:
+            n = min(n, min(len(imgs) for imgs in trial_images.values()))
+        if n < 2:
+            return None
+
+        states = np.array(states[:n])
+        slider_states = np.array(slider_states[:n])
+        actions = np.concatenate([states[1:, :2], states[-1:, :2]], axis=0)
+        goal = self.slider_goal_pose.vector()
+        targets = np.tile(goal, (n, 1))
+
+        result = {
+            "state": states,
+            "slider_state": slider_states,
+            "action": actions,
+            "target": targets,
+        }
+        if trial_images:
+            for cam_name, imgs in trial_images.items():
+                result[cam_name] = np.array(imgs[:n], dtype=np.uint8)
+        return result
+
+    def _save_to_zarr(self):
+        """Save collected episodes to zarr format."""
+        import zarr
+
+        if not self._collected_episodes:
+            print("No episodes collected, skipping zarr save.")
+            return
+
+        dc_cfg = self.cfg.data_collection_config
+        zarr_path = dc_cfg.zarr_path
+
+        states = np.concatenate([ep["state"] for ep in self._collected_episodes])
+        slider_states = np.concatenate([ep["slider_state"] for ep in self._collected_episodes])
+        actions = np.concatenate([ep["action"] for ep in self._collected_episodes])
+        targets = np.concatenate([ep["target"] for ep in self._collected_episodes])
+        episode_ends = np.cumsum([len(ep["state"]) for ep in self._collected_episodes])
+
+        root = zarr.open_group(zarr_path, mode="w")
+        data_group = root.create_group("data")
+        meta_group = root.create_group("meta")
+
+        data_group.create_dataset("state", data=states, chunks=(dc_cfg.state_chunk_length, states.shape[1]))
+        slider_chunks = (dc_cfg.state_chunk_length, slider_states.shape[1])
+        data_group.create_dataset("slider_state", data=slider_states, chunks=slider_chunks)
+        data_group.create_dataset("action", data=actions, chunks=(dc_cfg.action_chunk_length, actions.shape[1]))
+        data_group.create_dataset("target", data=targets, chunks=(dc_cfg.target_chunk_length, targets.shape[1]))
+        meta_group.create_dataset("episode_ends", data=episode_ends)
+
+        for cam_name in self._camera_info:
+            all_images = np.concatenate([ep[cam_name] for ep in self._collected_episodes])
+            image_chunks = (dc_cfg.image_chunk_length, *all_images.shape[1:])
+            data_group.create_dataset(cam_name, data=all_images, chunks=image_chunks, dtype="u1")
+            del all_images
+
+        print(f"\nSaved {len(self._collected_episodes)} episodes ({len(states)} total steps) to {zarr_path}")
+
+
+def _get_closest_index(arr, t, start_idx=0):
+    """Returns index of arr closest to t, searching forward from start_idx."""
+    min_diff = float("inf")
+    min_idx = start_idx
+    for i in range(start_idx, len(arr)):
+        diff = abs(arr[i] - t)
+        if diff > min_diff:
+            return min_idx
+        if diff < 1e-4:
+            return i
+        if diff < min_diff:
+            min_diff = diff
+            min_idx = i
+    return min_idx
+
 
 def print_blue(text, end="\n"):
     print(f"\033[94m{text}\033[0m", end=end)
@@ -306,8 +389,9 @@ def print_blue(text, end="\n"):
     config_name="sim_config/sim_sim/gcs_planner",  # specify the full path to your config
 )
 def main(cfg: OmegaConf):
-    sim_sim_gcs_planner = SimSimGcsPlanner(cfg)
-    sim_sim_gcs_planner.simulate_environment()
+    collect_data = cfg.get("collect_data", False)
+    sim_sim_gcs_planner = SimSimGcsPlanner(cfg, collect_data=collect_data)
+    sim_sim_gcs_planner.run()
 
 
 if __name__ == "__main__":

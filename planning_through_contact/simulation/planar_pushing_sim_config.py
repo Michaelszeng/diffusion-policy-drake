@@ -50,7 +50,7 @@ class MultiRunConfig:
         dataset_path: str = None,
         convex_hull_scale: float = 1.0,
         slider_physical_properties: PhysicalProperties = None,
-        num_trials_to_record: int = 0,
+        num_trials_to_record=0,
     ):
         # Define workspace for initial slider pose
         workspace = PlanarPushingWorkspace(
@@ -112,6 +112,7 @@ class PlanarPushingSimConfig:
     use_realtime: bool = False
     delay_before_execution: float = 5.0
     save_plots: bool = False
+    save_gcs_videos: bool = True
     diffusion_policy_config: DiffusionPolicyConfig = None
     scene_directive_name: str = "planar_pushing_iiwa_plant_hydroelastic.yaml"
     use_hardware: bool = False
@@ -195,6 +196,7 @@ class PlanarPushingSimConfig:
             use_realtime=cfg.use_realtime,
             delay_before_execution=cfg.delay_before_execution,
             save_plots=cfg.save_plots,
+            save_gcs_videos=cfg.get("save_gcs_videos", True),
             scene_directive_name=scene_directive_name,
             use_hardware=cfg.use_hardware,
             pusher_radius=cfg.pusher_radius,
@@ -362,6 +364,7 @@ class PlanarPushingSimConfig:
             and self.use_realtime == other.use_realtime
             and self.delay_before_execution == other.delay_before_execution
             and self.save_plots == other.save_plots
+            and self.save_gcs_videos == other.save_gcs_videos
             and self.scene_directive_name == other.scene_directive_name
             and self.use_hardware == other.use_hardware
             and self.pusher_z_offset == other.pusher_z_offset
