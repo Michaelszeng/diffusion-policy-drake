@@ -122,6 +122,21 @@ class CollisionChecker:
             return True
         return False
 
+    def get_signed_distance(self, X_WA: PlanarPose, X_WB: PlanarPose) -> float:
+        self._set_pose(self.model_A, self.body_A, X_WA)
+        self._set_pose(self.model_B, self.body_B, X_WB)
+
+        # Ask SceneGraph for penetrations.
+        query_object = self.scene_graph.get_query_output_port().Eval(
+            self.scene_graph.GetMyContextFromRoot(self.context)
+        )
+
+        # Compute signed distances if desired
+        dists = query_object.ComputeSignedDistancePairwiseClosestPoints(max_distance=10.0)
+        min_dist = min([d.distance for d in dists]) if len(dists) > 0 else float("inf")
+        # print(f"Signed distance: {min_dist}")
+        return min_dist
+
 
 # Test code
 if __name__ == "__main__":

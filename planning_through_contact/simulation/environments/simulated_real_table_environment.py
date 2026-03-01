@@ -302,10 +302,12 @@ class SimulatedRealTableEnvironment:
         print(f"Saved diagram to: {filename}")
 
     def set_slider_planar_pose(self, pose: PlanarPose):
-        min_height = 0.02
+        slider_shapes = get_slider_shapes(self._robot_system)
+        height = min([shape.height() for shape in slider_shapes])
+        z_value = height / 2
 
         # add a small height to avoid the box penetrating the table
-        q = pose.to_generalized_coords(min_height + 1e-2, z_axis_is_positive=True)
+        q = pose.to_generalized_coords(z_value + 1e-3, z_axis_is_positive=True)
         self._plant.SetPositions(self.mbp_context, self._slider, q)
         self._plant.SetVelocities(self.mbp_context, self._slider, np.zeros(6))
 
@@ -409,6 +411,7 @@ class SimulatedRealTableEnvironment:
                 recording_file = os.path.join(save_dir, recording_file)
             with open(recording_file, "w") as f:
                 f.write(res)
+            print(f"Saved Meshcat recording to: {recording_file}")
 
     def get_button_values(self):
         if self._desired_position_source_type == DesiredPositionSourceType.GAMEPAD:

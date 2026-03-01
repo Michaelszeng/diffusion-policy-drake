@@ -2,7 +2,7 @@ defaults:
   - _self_
   - hydra: base_hydra
 
-SEED: 1
+SEED: 3
 meshcat_port: 7000
 collect_data: false
 
@@ -122,8 +122,8 @@ multi_run_config:
   workspace_height: 0.3
   # Success criteria
   # Use intentionally tolerances since we use this config for data collection
-  trans_tol: 0.01
-  rot_tol: 2.5 # degrees
+  trans_tol: 0.012
+  rot_tol: 2.9 # degrees
   pusher_pos_tol: 0.01
   evaluate_final_pusher_position: true
   evaluate_final_slider_rotation: true
@@ -132,7 +132,8 @@ multi_run_config:
   # the convex_hull success criteria
   dataset_path: ''
   slider_physical_properties: ${physical_properties}
-  num_trials_to_record: 1 # number of trials to record in the meshcat recording; int or "all"
+  num_trials_to_record: 3
+  # num_trials_to_record: "all" # number of trials to record in the meshcat recording; int or "all"
 
 ########################################################################################################################
 ### Robot specific configs

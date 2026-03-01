@@ -27,6 +27,10 @@ from pydrake.all import (
 from planning_through_contact.geometry.collision_checker import CollisionChecker
 from planning_through_contact.geometry.planar.planar_pose import PlanarPose
 from planning_through_contact.simulation.planar_pushing_sim_config import PlanarPushingSimConfig
+from planning_through_contact.simulation.systems.success_checker import (
+    check_success_convex_hull,
+    check_success_tolerance,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +79,7 @@ class GcsPlannerController(LeafSystem):
         self._time = 0.0
         self._last_plan_step = -1  # Integer step index
         self._detected_contact = False  # Flag to indicate if contact has been detected in the current cycle
+        self._ready = False  # Set True by reset(); prevents stale planning during return-to-start
 
         # Parameters for GCS Planner
         config = get_default_plan_config(
@@ -119,6 +124,33 @@ class GcsPlannerController(LeafSystem):
         self.debug_action = self.DeclareVectorOutputPort("debug_action", 2, self.DoCalcDebugAction)
         self.debug_pusher_pose = self.DeclareVectorOutputPort("debug_pusher_pose", 2, self.DoCalcDebugPusherPose)
 
+    def check_success(self, current_slider_pose: PlanarPose, current_pusher_pose: PlanarPose) -> bool:
+        cfg = self._sim_config.multi_run_config
+        if cfg.success_criteria == "tolerance":
+            return check_success_tolerance(
+                slider_pose=current_slider_pose,
+                slider_goal_pose=self._sim_config.slider_goal_pose,
+                pusher_pose=current_pusher_pose,
+                pusher_goal_pose=self._sim_config.pusher_start_pose,
+                trans_tol=cfg.trans_tol,
+                rot_tol=cfg.rot_tol,
+                evaluate_final_slider_rotation=cfg.evaluate_final_slider_rotation,
+                evaluate_final_pusher_position=False,
+                pusher_pos_tol=cfg.pusher_pos_tol,
+            )
+        elif cfg.success_criteria == "convex_hull":
+            slider_success, pusher_success = check_success_convex_hull(
+                slider_pose=current_slider_pose,
+                pusher_pose=current_pusher_pose,
+                dataset_path=cfg.dataset_path,
+                pusher_start_pose=self._sim_config.pusher_start_pose,
+                slider_goal_pose=self._sim_config.slider_goal_pose,
+                convex_hull_scale=cfg.convex_hull_scale,
+                return_separate=True,
+            )
+            return slider_success
+        return False
+
     def DoCalcOutput(self, context: Context, output):
         _time = context.get_time()
         self._time = _time
@@ -127,6 +159,10 @@ class GcsPlannerController(LeafSystem):
         if self.run_flag.Eval(context)[0] == 0:
             output.set_value(self._current_action)
             self._traj_start_time = None
+            return
+
+        if not self._ready:
+            output.set_value(self._current_action)
             return
 
         if self._traj_start_time is None:  # If we haven't started yet, mark start time
@@ -141,10 +177,12 @@ class GcsPlannerController(LeafSystem):
         current_slider_pose = PlanarPose.from_pose(current_slider_rigid_transform)
         current_pusher_pose = PlanarPose.from_pose(current_pusher_rigid_transform)
         current_pusher_vel = self.pusher_velocity.Eval(context)
+        # self.current_slider_pose = current_slider_pose
+        # self.current_pusher_pose = current_pusher_pose
         # current_pusher_vel = None
-        # current_slider_pose = self._gcs_planner.original_traj.get_slider_planar_pose(time_in_traj_to_retrieve_action)
-        # current_pusher_pose = self._gcs_planner.original_traj.get_pusher_planar_pose(time_in_traj_to_retrieve_action)
-        # current_pusher_vel = self._gcs_planner.original_traj.get_pusher_velocity(time_in_traj_to_retrieve_action)
+        # current_slider_pose = self._gcs_planner.original_traj.get_slider_planar_pose(time_since_traj_start)
+        # current_pusher_pose = self._gcs_planner.original_traj.get_pusher_planar_pose(time_since_traj_start)
+        # current_pusher_vel = self._gcs_planner.original_traj.get_pusher_velocity(time_since_traj_start)
 
         # self._detected_contact is a flag to indicate if contact has been detected in the current cycle
         self._detected_contact = self._detected_contact or self._collision_checker.check_collision(
@@ -161,9 +199,31 @@ class GcsPlannerController(LeafSystem):
             # print(f"    current_pusher_pose: {current_pusher_pose}")
             # if current_pusher_vel is not None:
             #     print(f"    current_pusher_vel: {current_pusher_vel} (norm: {np.linalg.norm(current_pusher_vel)})")
+
+            # # DEBUGGING
+            # if hasattr(self, '_gcs_planner') and self._gcs_planner.original_traj is not None:
+            #     planned_slider = self._gcs_planner.original_traj.get_slider_planar_pose(time_since_traj_start)
+            #     planned_pusher = self._gcs_planner.original_traj.get_pusher_planar_pose(time_since_traj_start)
+            #     planned_pusher_vel = self._gcs_planner.original_traj.get_pusher_velocity(time_since_traj_start)
+            #     slider_pos_err = current_slider_pose.vector() - planned_slider.vector()
+            #     pusher_pos_err = current_pusher_pose.vector()[:2] - planned_pusher.vector()[:2]
+            #     has_vel = current_pusher_vel is not None and planned_pusher_vel is not None
+            #     pusher_vel_err = current_pusher_vel - planned_pusher_vel if has_vel else None
+            #     s_norm = np.linalg.norm(slider_pos_err)
+            #     p_norm = np.linalg.norm(pusher_pos_err)
+            #     print(f"    Slider pose err (x,y,θ): {slider_pos_err}  (norm: {s_norm:.4f})")
+            #     print(f"    Pusher pose err  (x,y):  {pusher_pos_err}  (norm: {p_norm:.4f})")
+            #     if pusher_vel_err is not None:
+            #         v_norm = np.linalg.norm(pusher_vel_err)
+            #         print(f"    Pusher vel err (vx,vy):  {pusher_vel_err}  (norm: {v_norm:.4f})")
+
+            success = self.check_success(current_slider_pose, current_pusher_pose)
+            if success:
+                print("    ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ SUCCESS ACHIEVED ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅")
+
             start = time.time()
             if self._detected_contact:
-                print("    ******************************* CONTACT DETECTED *******************************")
+                print("    🤜******************************* CONTACT DETECTED *******************************")
             if _time >= 99.4:
                 self.traj = self._gcs_planner.plan(
                     t=time_since_traj_start,
@@ -177,6 +237,8 @@ class GcsPlannerController(LeafSystem):
                     output_name=f"traj_{current_step}",
                     # rounded=not self._detected_contact,
                     rounded=False,
+                    # rounded=True,
+                    success=success,
                 )
             else:
                 self.traj = self._gcs_planner.plan(
@@ -187,9 +249,11 @@ class GcsPlannerController(LeafSystem):
                     is_in_contact=self._detected_contact,
                     # rounded=not self._detected_contact,
                     rounded=False,
+                    # rounded=True,
+                    success=success,
                 )
             self._detected_contact = False  # Reset contact detection flag
-            print(f"    GCS Planner planning time: {time.time() - start:.3f}s")
+            print(f"    ⏰ GCS Planner planning time: {time.time() - start:.3f}s")
 
             self._pusher_penetration_offset = (
                 self.traj.get_pusher_planar_pose(0).vector()[:2] - current_pusher_pose.vector()[:2]
@@ -230,6 +294,11 @@ class GcsPlannerController(LeafSystem):
         """
         if pusher_reset_position is not None:
             self._current_action = pusher_reset_position
+
+        # Reset state tracking
+        self._traj_start_time = None
+        self._last_plan_step = -1
+        self._detected_contact = False
 
         # Create GCS planner and do a full plan, generating the mode sequence
         start_and_goal = PlanarPushingStartAndGoal(
@@ -283,6 +352,7 @@ class GcsPlannerController(LeafSystem):
             self._gcs_planner.original_path.save(CACHE_PATH)
 
         print("✓ GCS Plan created successfully", flush=True)
+        self._ready = True
 
         # Visualize original GCS plan in meshcat
         # Since this doesn't change throughout a trial, we only need to visualize once here

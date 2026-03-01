@@ -16,6 +16,9 @@ from planning_through_contact.geometry.collision_checker import CollisionChecker
 from planning_through_contact.simulation.controllers.gcs_planner_source import (
     GcsPlannerSource,
 )
+from planning_through_contact.simulation.controllers.iiwa_hardware_station import (
+    IiwaHardwareStation,
+)
 from planning_through_contact.simulation.controllers.robot_system_base import (
     RobotSystemBase,
 )
@@ -37,9 +40,14 @@ from planning_through_contact.visualize.analysis import (
     PlanarPushingLog,
 )
 
+TRIALS_TO_SKIP = []
+# TRIALS_TO_SKIP = [0]
+
+ONLY_1_TRIAL = False
+
 
 class SimSimGcsPlanner:
-    def __init__(self, cfg: OmegaConf, ONLY_1_TRIAL: bool = True, collect_data: bool = False):
+    def __init__(self, cfg: OmegaConf, collect_data: bool = False):
         station_meshcat = StartMeshcat()
 
         # load sim_config
@@ -95,6 +103,10 @@ class SimSimGcsPlanner:
         )
         self.environment.export_diagram("sim_sim_environment.svg")
 
+        if isinstance(self.environment._robot_system, IiwaHardwareStation):
+            self.run_flag_port = self.environment._robot_system.GetOutputPort("run_flag")
+        self.robot_system_context = self.environment.robot_system_context
+
         self.evaluator = SimEvaluator(self.environment, self.sim_config, self.multi_run_config)
 
         self.collect_data = collect_data
@@ -112,7 +124,7 @@ class SimSimGcsPlanner:
     def run(
         self,
     ):
-        num_runs = 1 if self.only_one_trial else self.multi_run_config.num_runs
+        num_runs = len(TRIALS_TO_SKIP) + 1 if self.only_one_trial else self.multi_run_config.num_runs
         max_duration = self.multi_run_config.max_attempt_duration
 
         success_count = 0
@@ -137,109 +149,133 @@ class SimSimGcsPlanner:
         if self.collect_data:
             capture_dt = 1.0 / self.cfg.data_collection_config.policy_freq
 
-        for trial_idx in range(num_runs):
-            print(f"\n{'=' * 20} Trial {trial_idx} {'=' * 20}")
-            self.traj_start_time = current_time
-            trial_success = False
-            if self.collect_data:
-                trial_images = {name: [] for name in self._camera_info}
+        try:
+            for trial_idx in range(num_runs):
+                if trial_idx in TRIALS_TO_SKIP:
+                    print(f"\n{'=' * 20} Skipping Trial {trial_idx} (Hardcoded in TRIALS_TO_SKIP) {'=' * 20}")
+                    continue
 
-            try:
-                self.reset_environment(trial_idx)
-                self.environment.visualize_desired_slider_pose(current_time)
-                self.environment.visualize_desired_pusher_pose(current_time)
-
-                # Reset traj_start_time in controller so it treats this as a new start
-                # We need to access the controller instance
-                # GcsPlannerSource is a Diagram, but it has _gcs_planner as a member
-                # environment._desired_position_source is the GcsPlannerSource
-                controller = self.environment._desired_position_source._gcs_planner
-                controller._traj_start_time = None
-
-                # Capture initial image (t=0) before simulation advances
+                print(f"\n{'=' * 20} Trial {trial_idx} {'=' * 20}")
+                trial_success = False
                 if self.collect_data:
-                    for cam_name in self._camera_info:
-                        trial_images[cam_name].append(self._capture_camera_image(cam_name))
-                    next_capture_time = current_time + capture_dt
+                    trial_images = {name: [] for name in self._camera_info}
 
-                # Run trial
-                trial_end_time = current_time + max_duration
-                trial_done = False
-                while current_time < trial_end_time:
-                    # Advance simulation
-                    current_time += time_step
-                    # Rounding to avoid precision issues
-                    current_time = round(current_time / time_step) * time_step
+                try:
+                    slider_pose = self.get_slider_pose_for_trial(trial_idx)
 
-                    self.environment._simulator.AdvanceTo(current_time)
+                    if trial_idx > 0 and isinstance(self.environment._robot_system, IiwaHardwareStation):
+                        print("Returning to start...")
+                        self.environment._desired_position_source._gcs_planner._ready = False
+                        self.environment.set_slider_planar_pose(slider_pose)
+                        self.environment._robot_system._planner.reset()
 
-                    if self.collect_data and current_time >= next_capture_time - 1e-6:
+                        # Simulate until run_flag is True (slider settles during this time)
+                        while True:
+                            current_time += time_step
+                            current_time = round(current_time / time_step) * time_step
+                            self.environment._simulator.AdvanceTo(current_time)
+
+                            run_flag = self.run_flag_port.Eval(self.robot_system_context)[0]
+                            if run_flag:
+                                break
+
+                    self.traj_start_time = current_time
+                    self.reset_environment(trial_idx, slider_pose)
+                    self.environment.visualize_desired_slider_pose(current_time)
+                    self.environment.visualize_desired_pusher_pose(current_time)
+
+                    # Capture initial image (t=0) before simulation advances
+                    if self.collect_data:
                         for cam_name in self._camera_info:
                             trial_images[cam_name].append(self._capture_camera_image(cam_name))
-                        next_capture_time += capture_dt
+                        next_capture_time = current_time + capture_dt
 
-                    # Check success
+                    # Run trial
+                    trial_end_time = current_time + max_duration
+                    trial_done = False
+                    while current_time < trial_end_time:
+                        # Advance simulation
+                        current_time += time_step
+                        # Rounding to avoid precision issues
+                        current_time = round(current_time / time_step) * time_step
+
+                        self.environment._simulator.AdvanceTo(current_time)
+
+                        if self.collect_data and current_time >= next_capture_time - 1e-6:
+                            for cam_name in self._camera_info:
+                                trial_images[cam_name].append(self._capture_camera_image(cam_name))
+                            next_capture_time += capture_dt
+
+                        # Check success
+                        if self.evaluator.check_success():
+                            success_count += 1
+                            trial_success = True
+                            print(f"Trial {trial_idx} Result: SUCCESS")
+                            trial_done = True
+                            break
+
+                        # Check failure
+                        failure, mode = self.evaluator.check_failure(current_time, self.traj_start_time)
+                        if failure:
+                            failure_count += 1
+                            print(f"Trial {trial_idx} Result: {mode.value}")
+                            trial_done = True
+                            break
+
+                    if not trial_done:
+                        # If we exited loop due to timeout (current_time >= trial_end_time)
+                        # and check_failure didn't catch it yet (or we want to be explicit)
+                        failure_count += 1
+                        print(f"Trial {trial_idx} Result: TIMEOUT")
+
+                except Exception as e:
+                    # Check if we succeeded despite the error (e.g. planner failed because we are at goal)
+                    # This often happens with GCS planner when the start and goal are very close
                     if self.evaluator.check_success():
                         success_count += 1
                         trial_success = True
-                        print(f"Trial {trial_idx} Result: SUCCESS")
-                        trial_done = True
-                        break
+                        print(f"Trial {trial_idx} Result: SUCCESS (ended with error: {e})")
+                    else:
+                        error_count += 1
+                        print(f"Trial {trial_idx} Result: ERROR - {e}")
+                        traceback.print_exc()
+                    # Continue to next trial
+                    pass
 
-                    # Check failure
-                    failure, mode = self.evaluator.check_failure(current_time, self.traj_start_time)
-                    if failure:
-                        failure_count += 1
-                        print(f"Trial {trial_idx} Result: {mode.value}")
-                        trial_done = True
-                        break
+                if self.collect_data and trial_success:
+                    episode = self._extract_trial_data(trial_images)
+                    if episode is not None:
+                        self._collected_episodes.append(episode)
 
-                if not trial_done:
-                    # If we exited loop due to timeout (current_time >= trial_end_time)
-                    # and check_failure didn't catch it yet (or we want to be explicit)
-                    failure_count += 1
-                    print(f"Trial {trial_idx} Result: TIMEOUT")
+                self.num_completed_trials += 1
+                print(f"Running Stats: Success={success_count}, Failure={failure_count}, Error={error_count}")
 
-            except Exception as e:
-                # Check if we succeeded despite the error (e.g. planner failed because we are at goal)
-                # This often happens with GCS planner when the start and goal are very close
-                if self.evaluator.check_success():
-                    success_count += 1
-                    trial_success = True
-                    print(f"Trial {trial_idx} Result: SUCCESS (ended with error: {e})")
-                else:
-                    error_count += 1
-                    print(f"Trial {trial_idx} Result: ERROR - {e}")
-                    traceback.print_exc()
-                # Continue to next trial
+                recorder.on_trial_complete()
 
-            if self.collect_data and trial_success:
-                episode = self._extract_trial_data(trial_images)
-                if episode is not None:
-                    self._collected_episodes.append(episode)
+        finally:
+            recorder.finalize()
 
-            self.num_completed_trials += 1
-            print(f"Running Stats: Success={success_count}, Failure={failure_count}, Error={error_count}")
+            if self.collect_data:
+                self._save_to_zarr()
 
-            recorder.on_trial_complete()
+            print("Finished running trials.")
 
-        recorder.finalize()
+    def get_slider_pose_for_trial(self, trial_idx: int):
+        slider = self.sim_config.slider
+        ss = np.random.SeedSequence([self.multi_run_config.seed, trial_idx])
+        trial_rng = np.random.default_rng(ss)
+        return get_slider_initial_pose_within_workspace(
+            self.workspace, slider, self.pusher_start_pose, self.slider_goal_pose, self.collision_checker, rng=trial_rng
+        )
 
-        if self.collect_data:
-            self._save_to_zarr()
-
-    def reset_environment(self, trial_idx: int):
+    def reset_environment(self, trial_idx: int, slider_pose=None):
         """
         Reset environment with new initial slider pose.
         Use seed sequence to ensure deterministic sequence of initial slider poses is produced every run.
         """
         print("=" * 100 + f"\nResetting environment for trial {trial_idx}.")
-        slider = self.sim_config.slider
-        ss = np.random.SeedSequence([self.multi_run_config.seed, trial_idx])
-        trial_rng = np.random.default_rng(ss)
-        slider_pose = get_slider_initial_pose_within_workspace(
-            self.workspace, slider, self.pusher_start_pose, self.slider_goal_pose, self.collision_checker, rng=trial_rng
-        )
+        if slider_pose is None:
+            slider_pose = self.get_slider_pose_for_trial(trial_idx)
 
         self.environment.reset(
             self.sim_config.default_joint_positions,
