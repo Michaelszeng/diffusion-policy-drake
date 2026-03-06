@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # Set the print precision to 4 decimal places
 np.set_printoptions(precision=4)
 
-EXECUTION_LATENCY = 0.005
+EXECUTION_LATENCY = 0.006
 
 
 class GcsPlannerController(LeafSystem):
@@ -77,9 +77,10 @@ class GcsPlannerController(LeafSystem):
         # of penetration at every replan.
         self._pusher_penetration_offset = np.array([0.0, 0.0])
         self._time = 0.0
-        self._last_plan_step = -1  # Integer step index
+        self._last_plan_trial_step = -1  # Step index within current trial
         self._detected_contact = False  # Flag to indicate if contact has been detected in the current cycle
         self._ready = False  # Set True by reset(); prevents stale planning during return-to-start
+        self._consecutive_failures = 0  # Count of consecutive solver failures (None result or cost > 5e4)
 
         # Parameters for GCS Planner
         config = get_default_plan_config(
@@ -190,11 +191,10 @@ class GcsPlannerController(LeafSystem):
         )
 
         # At next update cycle, generate new trajectory prediction with the fixed mode sequence
-        current_step = int(_time * self._freq)
-        if current_step > self._last_plan_step:
-            self._last_plan_time = _time
-            self._last_plan_step = current_step
-            print(f"Sim time: {_time:.4f}s | Current step: {current_step}")
+        trial_step = int(time_since_traj_start * self._freq)
+        if trial_step > self._last_plan_trial_step:
+            self._last_plan_trial_step = trial_step
+            print(f"Sim time: {_time:.4f}s | Trial step: {trial_step}")
             # print(f"    current_slider_pose: {current_slider_pose}")
             # print(f"    current_pusher_pose: {current_pusher_pose}")
             # if current_pusher_vel is not None:
@@ -223,9 +223,9 @@ class GcsPlannerController(LeafSystem):
 
             start = time.time()
             if self._detected_contact:
-                print("    🤜******************************* CONTACT DETECTED *******************************")
-            if _time >= 99.4:
-                self.traj = self._gcs_planner.plan(
+                print("    ******************************* CONTACT DETECTED *******************************")
+            if _time >= 9999.4:
+                new_traj, traj_cost = self._gcs_planner.plan(
                     t=time_since_traj_start,
                     current_slider_pose=current_slider_pose,
                     current_pusher_pose=current_pusher_pose,
@@ -234,14 +234,14 @@ class GcsPlannerController(LeafSystem):
                     save_video=True,
                     save_unrounded_video=True,
                     output_folder="temp_videos_seed_double_plan",
-                    output_name=f"traj_{current_step}",
+                    output_name=f"traj_{trial_step}",
                     # rounded=not self._detected_contact,
                     rounded=False,
                     # rounded=True,
                     success=success,
                 )
             else:
-                self.traj = self._gcs_planner.plan(
+                new_traj, traj_cost = self._gcs_planner.plan(
                     t=time_since_traj_start,
                     current_slider_pose=current_slider_pose,
                     current_pusher_pose=current_pusher_pose,
@@ -253,12 +253,22 @@ class GcsPlannerController(LeafSystem):
                     success=success,
                 )
             self._detected_contact = False  # Reset contact detection flag
-            print(f"    ⏰ GCS Planner planning time: {time.time() - start:.3f}s")
+            print(f"    ⏱️ GCS Planner planning time: {time.time() - start:.3f}s")
 
-            self._pusher_penetration_offset = (
-                self.traj.get_pusher_planar_pose(0).vector()[:2] - current_pusher_pose.vector()[:2]
-            )  # Difference between current pusher pose and plan's initial pusher pose
-            print(f"    pusher_penetration_offset: {self._pusher_penetration_offset}")
+            solver_failed = new_traj is None or (traj_cost is not None and traj_cost > 5e4)
+            if solver_failed:
+                self._consecutive_failures += 1
+                _ = f"cost={traj_cost:.2e}" if traj_cost is not None else "no solution"
+                print(f"    ⚠️ Solver failure ({_}), consecutive={self._consecutive_failures}")
+                assert self._consecutive_failures < 3, "GCS Planner failed 3 times in a row. Aborting."
+            else:
+                self._consecutive_failures = 0
+                self._last_plan_time = _time
+                self.traj = new_traj
+                self._pusher_penetration_offset = (
+                    self.traj.get_pusher_planar_pose(0).vector()[:2] - current_pusher_pose.vector()[:2]
+                )  # Difference between current pusher pose and plan's initial pusher pose
+                print(f"    pusher_penetration_offset: {self._pusher_penetration_offset}")
 
         # Output Action from trajectory prediction
         time_in_traj_to_retrieve_action = _time - self._last_plan_time + EXECUTION_LATENCY
@@ -297,8 +307,9 @@ class GcsPlannerController(LeafSystem):
 
         # Reset state tracking
         self._traj_start_time = None
-        self._last_plan_step = -1
+        self._last_plan_trial_step = -1
         self._detected_contact = False
+        self._consecutive_failures = 0
 
         # Create GCS planner and do a full plan, generating the mode sequence
         start_and_goal = PlanarPushingStartAndGoal(

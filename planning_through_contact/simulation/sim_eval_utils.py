@@ -1,5 +1,9 @@
+import os
+import sys
+from contextlib import contextmanager
 from enum import Enum
 
+import hydra
 import numpy as np
 
 from planning_through_contact.geometry.planar.planar_pose import PlanarPose
@@ -16,6 +20,127 @@ class Result(Enum):
     MISSED_GOAL = "missed goal"
     ELBOW_DOWN = "elbow down"
     SUCCESS = "success"
+
+
+def print_blue(text, end="\n"):
+    print(f"\033[94m{text}\033[0m", end=end)
+
+
+class _Tee:
+    """Mirrors writes to both an original stream and a log file."""
+
+    def __init__(self, original_stream, log_file):
+        self._original = original_stream
+        self._log = log_file
+
+    def write(self, data):
+        self._original.write(data)
+        self._log.write(data)
+
+    def flush(self):
+        self._original.flush()
+        self._log.flush()
+
+    def isatty(self):
+        return self._original.isatty()
+
+    def fileno(self):
+        return self._original.fileno()
+
+    def __getattr__(self, name):
+        return getattr(self._original, name)
+
+
+@contextmanager
+def tee_to_log(output_dir: str, log_filename: str):
+    """Context manager that mirrors stdout and stderr to a log file in output_dir."""
+    log_path = os.path.join(output_dir, log_filename)
+    with open(log_path, "a") as log_file:
+        original_stdout, original_stderr = sys.stdout, sys.stderr
+        sys.stdout = _Tee(original_stdout, log_file)
+        sys.stderr = _Tee(original_stderr, log_file)
+        try:
+            yield
+        finally:
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr
+
+
+def create_hydra_output_dir():
+    output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+    if not os.path.exists(f"{output_dir}/analysis"):
+        os.makedirs(f"{output_dir}/analysis")
+    return output_dir
+
+
+def append_to_summary_file(output_dir, trial_idx, result, trial_time, initial_conditions, final_error):
+    with open(os.path.join(output_dir, "summary.txt"), "a") as f:
+        f.write(f"Trial {trial_idx + 1}\n")
+        f.write("--------------------\n")
+        f.write(f"Result: {result.value}\n")
+        f.write(f"Trial time: {trial_time:.2f}\n")
+        f.write(f"Initial slider pose: {initial_conditions}\n")
+        f.write(f"Final pusher error: {final_error['pusher_error']}\n")
+        f.write(f"Final slider error: {final_error['slider_error']}\n")
+        f.write("\n")
+
+
+def generate_analysis_summary(output_dir, summary, multi_run_config, cfg):
+    if len(summary["successful_trials"]) == 0:
+        average_successful_trans_error = "N/A"
+        average_successful_rot_error = "N/A"
+    else:
+        successful_translation_errors = []
+        successful_rotation_errors = []
+        for trial_idx in summary["successful_trials"]:
+            successful_translation_errors.append(np.linalg.norm(summary["final_error"][trial_idx]["slider_error"][:2]))
+            successful_rotation_errors.append(np.abs(summary["final_error"][trial_idx]["slider_error"][2]))
+
+        average_succesful_trans_error = np.mean(successful_translation_errors)
+        average_succesful_rot_error = np.mean(successful_rotation_errors)
+        average_successful_trans_error = f"{100 * average_succesful_trans_error:.2f}cm"
+        average_successful_rot_error = f"{np.rad2deg(average_succesful_rot_error):.2f}°"
+
+    summary_path = os.path.join(output_dir, "summary.pkl")
+    import pickle
+
+    with open(summary_path, "wb") as f:
+        pickle.dump(summary, f)
+
+    # Read the current content
+    existing_content = ""
+    if os.path.exists(os.path.join(output_dir, "summary.txt")):
+        with open(os.path.join(output_dir, "summary.txt"), "r") as f:
+            existing_content = f.read()
+
+    # Write the new content
+    with open(os.path.join(output_dir, "summary.txt"), "w") as f:
+        num_runs = len(summary["trial_times"])
+        f.write("Evaluation Summary\n")
+        f.write("====================================\n")
+        f.write("Units: seconds, meters, radians\n\n")
+        f.write(f"Total trials: {num_runs}\n")
+        f.write(f"Total successful trials: {len(summary['successful_trials'])}\n")
+        f.write(f"Success rate: {len(summary['successful_trials']) / num_runs:.6f}\n")
+        f.write(f"Average successful translation error: {average_successful_trans_error}\n")
+        f.write(f"Average successful rotation error: {average_successful_rot_error}\n")
+        f.write(f"Total time (sim): {summary['total_eval_sim_time']:.2f}\n")
+        f.write(f"Total time (wall): {summary['total_eval_wall_time']:.2f}\n\n")
+
+        success_criteria = multi_run_config.success_criteria
+        f.write(f"Success criteria: {success_criteria}\n")
+        if success_criteria == "tolerance":
+            f.write(f"Translation tolerance: {multi_run_config.trans_tol}\n")
+            f.write(f"Rotation tolerance: {np.deg2rad(multi_run_config.rot_tol):.6f}\n")
+            f.write(f"Evaluate final slider rotation: {multi_run_config.evaluate_final_slider_rotation}\n")
+            f.write(f"Evaluate final pusher position: {multi_run_config.evaluate_final_pusher_position}\n")
+        f.write(f"Max attempt duration: {multi_run_config.max_attempt_duration}\n\n")
+        f.write(f"Workspace width: {cfg.multi_run_config.workspace_width}\n")
+        f.write(f"Workspace height: {cfg.multi_run_config.workspace_height}\n")
+        f.write("====================================\n\n")
+
+        # Append the existing content
+        f.write(existing_content)
 
 
 class SimEvaluator:

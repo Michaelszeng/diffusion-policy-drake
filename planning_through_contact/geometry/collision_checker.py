@@ -107,12 +107,6 @@ class CollisionChecker:
             self.scene_graph.GetMyContextFromRoot(self.context)
         )
         # inspector = query_object.inspector()
-
-        # Compute signed distances if desired
-        dists = query_object.ComputeSignedDistancePairwiseClosestPoints(max_distance=10.0)
-        min_dist = min([d.distance for d in dists]) if len(dists) > 0 else float("inf")
-        # print(f"Signed distance: {min_dist}")
-
         penetrations = query_object.ComputePointPairPenetration()
         # print(
         #     f"collisions: {[f'{inspector.GetName(pen.id_A)}, {inspector.GetName(pen.id_B)}' for pen in penetrations]}"

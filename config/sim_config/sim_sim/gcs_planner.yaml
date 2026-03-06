@@ -123,7 +123,7 @@ multi_run_config:
   # Success criteria
   # Use intentionally tolerances since we use this config for data collection
   trans_tol: 0.012
-  rot_tol: 2.9 # degrees
+  rot_tol: 3.0 # degrees
   pusher_pos_tol: 0.01
   evaluate_final_pusher_position: true
   evaluate_final_slider_rotation: true
@@ -132,8 +132,8 @@ multi_run_config:
   # the convex_hull success criteria
   dataset_path: ''
   slider_physical_properties: ${physical_properties}
-  num_trials_to_record: 3
-  # num_trials_to_record: "all" # number of trials to record in the meshcat recording; int or "all"
+  # num_trials_to_record: 3
+  num_trials_to_record: "all" # number of trials to record in the meshcat recording; int or "all"
 
 ########################################################################################################################
 ### Robot specific configs

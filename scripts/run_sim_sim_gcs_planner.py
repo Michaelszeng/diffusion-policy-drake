@@ -1,9 +1,11 @@
 import importlib
+import logging
 import math
 import os
 import pathlib
 import random
 import shutil
+import time
 import traceback
 
 import cv2
@@ -11,6 +13,7 @@ import hydra
 import numpy as np
 from omegaconf import OmegaConf
 from pydrake.all import StartMeshcat
+from pydrake.common import configure_logging
 
 from planning_through_contact.geometry.collision_checker import CollisionChecker
 from planning_through_contact.simulation.controllers.gcs_planner_source import (
@@ -30,7 +33,12 @@ from planning_through_contact.simulation.planar_pushing_sim_config import (
 )
 from planning_through_contact.simulation.sim_eval_utils import (
     MeshcatRecordingManager,
+    Result,
     SimEvaluator,
+    append_to_summary_file,
+    create_hydra_output_dir,
+    generate_analysis_summary,
+    tee_to_log,
 )
 from planning_through_contact.simulation.sim_utils import (
     get_slider_initial_pose_within_workspace,
@@ -40,18 +48,23 @@ from planning_through_contact.visualize.analysis import (
     PlanarPushingLog,
 )
 
-TRIALS_TO_SKIP = []
-# TRIALS_TO_SKIP = [0]
+# TRIALS_TO_SKIP = []
+TRIALS_TO_SKIP = [0]
 
 ONLY_1_TRIAL = False
 
 
+configure_logging()
+logging.getLogger("drake").setLevel(logging.DEBUG)
+
+
 class SimSimGcsPlanner:
-    def __init__(self, cfg: OmegaConf, collect_data: bool = False):
+    def __init__(self, cfg: OmegaConf, output_dir: str = None, collect_data: bool = False):
         station_meshcat = StartMeshcat()
 
         # load sim_config
         self.cfg = cfg
+        self.output_dir = output_dir
 
         # Hold system-wide lock during writing and reading of small_table_hydroelastic.urdf and arbitrary_shape.sdf.
         # After this locked code block is finished, other processes are free to modify these files without affecting
@@ -135,13 +148,30 @@ class SimSimGcsPlanner:
         current_time = self.environment._simulator.get_context().get_time()
         time_step = self.sim_config.time_step * 10
 
-        output_dir = self.cfg.get("output_dir", ".")
+        summary = {
+            "successful_trials": [],
+            "trial_times": [],
+            "initial_conditions": [],
+            "final_error": [],
+            "trial_result": [],
+            "total_eval_sim_time": 0.0,
+            "total_eval_wall_time": 0.0,
+        }
+        start_time = time.time()
+
+        if self.output_dir is None:
+            self.output_dir = self.cfg.get("output_dir", ".")
+
+        # Delete log file if it already exists
+        if os.path.exists(os.path.join(self.output_dir, "summary.txt")):
+            os.remove(os.path.join(self.output_dir, "summary.txt"))
+
         recorder = MeshcatRecordingManager(
             meshcat=self.environment._meshcat,
             environment=self.environment,
             num_trials_to_record=self.multi_run_config.num_trials_to_record,
             total_runs=num_runs,
-            output_dir=output_dir,
+            output_dir=self.output_dir,
             file_prefix="gcs_planner",
         )
         recorder.start()
@@ -163,13 +193,20 @@ class SimSimGcsPlanner:
                 try:
                     slider_pose = self.get_slider_pose_for_trial(trial_idx)
 
-                    if trial_idx > 0 and isinstance(self.environment._robot_system, IiwaHardwareStation):
-                        print("Returning to start...")
+                    if isinstance(self.environment._robot_system, IiwaHardwareStation):
+                        # Only reset IiwaPlanner (to trigger return-to-start) if it is currently
+                        # in PUSHING mode. The reset_planner flag is only consumed by IiwaPlanner
+                        # when mode == PUSHING; setting it in any other mode leaves it dormant
+                        # and it fires a spurious re-plan the first time PUSHING is entered.
+                        if self.run_flag_port.Eval(self.robot_system_context)[0]:
+                            print("Returning to start...")
+                            self.environment._robot_system._planner.reset()
+
+                        # Prevent premature planning while IiwaPlanner works toward pushing mode
                         self.environment._desired_position_source._gcs_planner._ready = False
                         self.environment.set_slider_planar_pose(slider_pose)
-                        self.environment._robot_system._planner.reset()
 
-                        # Simulate until run_flag is True (slider settles during this time)
+                        # Simulate until run_flag is True (IiwaPlanner reaches pushing mode)
                         while True:
                             current_time += time_step
                             current_time = round(current_time / time_step) * time_step
@@ -181,6 +218,7 @@ class SimSimGcsPlanner:
 
                     self.traj_start_time = current_time
                     self.reset_environment(trial_idx, slider_pose)
+                    summary["initial_conditions"].append(self.evaluator.get_slider_pose().vector())
                     self.environment.visualize_desired_slider_pose(current_time)
                     self.environment.visualize_desired_pusher_pose(current_time)
 
@@ -212,6 +250,10 @@ class SimSimGcsPlanner:
                             trial_success = True
                             print(f"Trial {trial_idx} Result: SUCCESS")
                             trial_done = True
+
+                            summary["successful_trials"].append(trial_idx)
+                            summary["trial_result"].append(Result.SUCCESS.value)
+                            summary["trial_times"].append(current_time - self.traj_start_time)
                             break
 
                         # Check failure
@@ -220,6 +262,12 @@ class SimSimGcsPlanner:
                             failure_count += 1
                             print(f"Trial {trial_idx} Result: {mode.value}")
                             trial_done = True
+
+                            summary["trial_result"].append(mode.value)
+                            if mode == Result.TIMEOUT or mode == Result.MISSED_GOAL:
+                                summary["trial_times"].append(self.multi_run_config.max_attempt_duration)
+                            else:
+                                summary["trial_times"].append(current_time - self.traj_start_time)
                             break
 
                     if not trial_done:
@@ -228,19 +276,47 @@ class SimSimGcsPlanner:
                         failure_count += 1
                         print(f"Trial {trial_idx} Result: TIMEOUT")
 
+                        summary["trial_result"].append(Result.TIMEOUT.value)
+                        summary["trial_times"].append(self.multi_run_config.max_attempt_duration)
+
                 except Exception as e:
+                    # Re-initialize the simulator to resync its internal time tracking. If an
+                    # exception escapes AdvanceTo() (e.g. AssertionError from the GCS planner),
+                    # Drake's last_known_simtime_ is left inconsistent, causing every subsequent
+                    # AdvanceTo() call to fail with "Simulation time has changed".
+                    self.environment._simulator.Initialize()
+
                     # Check if we succeeded despite the error (e.g. planner failed because we are at goal)
                     # This often happens with GCS planner when the start and goal are very close
                     if self.evaluator.check_success():
                         success_count += 1
                         trial_success = True
                         print(f"Trial {trial_idx} Result: SUCCESS (ended with error: {e})")
+
+                        summary["successful_trials"].append(trial_idx)
+                        summary["trial_result"].append(Result.SUCCESS.value)
+                        summary["trial_times"].append(current_time - self.traj_start_time)
                     else:
                         error_count += 1
                         print(f"Trial {trial_idx} Result: ERROR - {e}")
                         traceback.print_exc()
+
+                        summary["trial_result"].append("error")
+                        summary["trial_times"].append(current_time - self.traj_start_time)
                     # Continue to next trial
                     pass
+
+                # Logging
+                final_error = self.evaluator.get_final_error()
+                summary["final_error"].append(final_error)
+                append_to_summary_file(
+                    self.output_dir,
+                    trial_idx,
+                    Result(summary["trial_result"][-1]) if summary["trial_result"][-1] != "error" else Result.NONE,
+                    summary["trial_times"][-1],
+                    summary["initial_conditions"][-1],
+                    final_error,
+                )
 
                 if self.collect_data and trial_success:
                     episode = self._extract_trial_data(trial_images)
@@ -254,6 +330,10 @@ class SimSimGcsPlanner:
 
         finally:
             recorder.finalize()
+
+            summary["total_eval_sim_time"] = current_time
+            summary["total_eval_wall_time"] = time.time() - start_time
+            generate_analysis_summary(self.output_dir, summary, self.multi_run_config, self.cfg)
 
             if self.collect_data:
                 self._save_to_zarr()
@@ -415,10 +495,6 @@ def _get_closest_index(arr, t, start_idx=0):
     return min_idx
 
 
-def print_blue(text, end="\n"):
-    print(f"\033[94m{text}\033[0m", end=end)
-
-
 @hydra.main(
     version_base=None,
     config_path=str(pathlib.Path(__file__).parents[1].joinpath("config")),
@@ -426,8 +502,10 @@ def print_blue(text, end="\n"):
 )
 def main(cfg: OmegaConf):
     collect_data = cfg.get("collect_data", False)
-    sim_sim_gcs_planner = SimSimGcsPlanner(cfg, collect_data=collect_data)
-    sim_sim_gcs_planner.run()
+    output_dir = create_hydra_output_dir()
+    with tee_to_log(output_dir, "run_sim_sim_gcs_planner.log"):
+        sim_sim_gcs_planner = SimSimGcsPlanner(cfg, output_dir=output_dir, collect_data=collect_data)
+        sim_sim_gcs_planner.run()
 
 
 if __name__ == "__main__":

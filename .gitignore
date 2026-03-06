@@ -19,6 +19,7 @@ wandb/
 *.pkl
 *.html
 temp*
+trajectories_mpc*
 
 
 # Vim

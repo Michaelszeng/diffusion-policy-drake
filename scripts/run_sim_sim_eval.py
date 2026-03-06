@@ -44,6 +44,11 @@ from planning_through_contact.simulation.sim_eval_utils import (
     MeshcatRecordingManager,
     Result,
     SimEvaluator,
+    append_to_summary_file,
+    create_hydra_output_dir,
+    generate_analysis_summary,
+    print_blue,
+    tee_to_log,
 )
 from planning_through_contact.simulation.sim_utils import get_slider_initial_pose_within_workspace
 from planning_through_contact.utils import file_lock
@@ -192,7 +197,8 @@ class SimSimEval:
             # Override existing summary.txt
             with open(os.path.join(self.output_dir, "summary.txt"), "w") as f:
                 for i in range(prev_completed_trials):
-                    self.update_summary(
+                    append_to_summary_file(
+                        self.output_dir,
                         i,
                         Result(summary["trial_result"][i]),
                         summary["trial_times"][i],
@@ -253,7 +259,8 @@ class SimSimEval:
                     # Logging
                     final_error = self.evaluator.get_final_error()
                     summary["final_error"].append(final_error)
-                    self.update_summary(
+                    append_to_summary_file(
+                        self.output_dir,
                         num_completed_trials,
                         result,
                         summary["trial_times"][-1],
@@ -312,7 +319,7 @@ class SimSimEval:
         summary["total_eval_wall_time"] += time.time() - start_time
         if recorder is not None:
             recorder.finalize()
-        self.save_summary(summary)
+        generate_analysis_summary(self.output_dir, summary, self.multi_run_config, self.cfg)
         self.print_summary(os.path.join(self.output_dir, "summary.txt"))
 
     def print_summary(self, summary_path):
@@ -468,75 +475,6 @@ class SimSimEval:
         plt.savefig(filepath)
         plt.close()
 
-    def update_summary(self, trial_idx, result, trial_time, initial_conditions, final_error):
-        with open(os.path.join(self.output_dir, "summary.txt"), "a") as f:
-            f.write(f"Trial {trial_idx + 1}\n")
-            f.write("--------------------\n")
-            f.write(f"Result: {result.value}\n")
-            f.write(f"Trial time: {trial_time:.2f}\n")
-            f.write(f"Initial slider pose: {initial_conditions}\n")
-            f.write(f"Final pusher error: {final_error['pusher_error']}\n")
-            f.write(f"Final slider error: {final_error['slider_error']}\n")
-            f.write("\n")
-
-    def save_summary(self, summary):
-        if len(summary["successful_trials"]) == 0:
-            average_successful_trans_error = "N/A"
-            average_successful_rot_error = "N/A"
-        else:
-            successful_translation_errors = []
-            successful_rotation_errors = []
-            for trial_idx in summary["successful_trials"]:
-                successful_translation_errors.append(
-                    np.linalg.norm(summary["final_error"][trial_idx]["slider_error"][:2])
-                )
-                successful_rotation_errors.append(np.abs(summary["final_error"][trial_idx]["slider_error"][2]))
-
-            average_succesful_trans_error = np.mean(successful_translation_errors)
-            average_succesful_rot_error = np.mean(successful_rotation_errors)
-            average_successful_trans_error = f"{100 * average_succesful_trans_error:.2f}cm"
-            average_successful_rot_error = f"{np.rad2deg(average_succesful_rot_error):.2f}°"
-
-        summary_path = os.path.join(self.output_dir, "summary.pkl")
-        with open(summary_path, "wb") as f:
-            pickle.dump(summary, f)
-
-        # Read the current content
-        with open(os.path.join(self.output_dir, "summary.txt"), "r") as f:
-            existing_content = f.read()
-
-        # Write the new content
-        with open(os.path.join(self.output_dir, "summary.txt"), "w") as f:
-            num_runs = len(summary["trial_times"])
-            f.write("Evaluation Summary\n")
-            f.write("====================================\n")
-            f.write("Units: seconds, meters, radians\n\n")
-            f.write(f"Total trials: {num_runs}\n")
-            f.write(f"Total successful trials: {len(summary['successful_trials'])}\n")
-            f.write(f"Success rate: {len(summary['successful_trials']) / num_runs:.6f}\n")
-            f.write(f"Average successful translation error: {average_successful_trans_error}\n")
-            f.write(f"Average successful rotation error: {average_successful_rot_error}\n")
-            f.write(f"Total time (sim): {summary['total_eval_sim_time']:.2f}\n")
-            f.write(f"Total time (wall): {summary['total_eval_wall_time']:.2f}\n\n")
-
-            f.write(f"Success criteria: {self.success_criteria}\n")
-            if self.success_criteria == "tolerance":
-                f.write(f"Translation tolerance: {self.multi_run_config.trans_tol}\n")
-                f.write(f"Rotation tolerance: {np.deg2rad(self.multi_run_config.rot_tol):.6f}\n")
-                f.write(f"Evaluate final slider rotation: {self.multi_run_config.evaluate_final_slider_rotation}\n")
-                f.write(f"Evaluate final pusher position: {self.multi_run_config.evaluate_final_pusher_position}\n")
-            f.write(f"Max attempt duration: {self.multi_run_config.max_attempt_duration}\n\n")
-            f.write(f"Workspace width: {self.cfg.multi_run_config.workspace_width}\n")
-            f.write(f"Workspace height: {self.cfg.multi_run_config.workspace_height}\n")
-            f.write("====================================\n\n")
-
-            # Append the existing content
-            f.write(existing_content)
-
-
-def print_blue(text, end="\n"):
-    print(f"\033[94m{text}\033[0m", end=end)
-
 
 @hydra.main(
     version_base=None,
@@ -544,11 +482,10 @@ def print_blue(text, end="\n"):
     config_name="sim_config/sim_sim/gamepad_teleop_carbon",  # specify the full path to your config
 )
 def main(cfg: OmegaConf):
-    output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
-    if not os.path.exists(f"{output_dir}/analysis"):
-        os.makedirs(f"{output_dir}/analysis")
-    sim_sim_eval = SimSimEval(cfg, output_dir)
-    sim_sim_eval.simulate_environment(float("inf"))
+    output_dir = create_hydra_output_dir()
+    with tee_to_log(output_dir, "run_sim_sim_eval.log"):
+        sim_sim_eval = SimSimEval(cfg, output_dir)
+        sim_sim_eval.simulate_environment(float("inf"))
 
 
 if __name__ == "__main__":
