@@ -24,10 +24,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import wandb
 from pydrake.all import Meshcat
 from torch.distributions.normal import Normal
 
+import wandb
 from rl_push_t.env.push_t_gym_env import PushTDrakeEnv
 
 # ── Neural network ─────────────────────────────────────────────────────────────
@@ -95,7 +95,6 @@ def parse_args():
     parser.add_argument("--cfg_path", type=str, default="rl_push_t/configs/rl_env.yaml")
     parser.add_argument("--debug", action="store_true", help="n_envs=1 with meshcat visualization")
     parser.add_argument("--n_envs", type=int, default=16)
-    parser.add_argument("--n_eval_envs", type=int, default=4)
     parser.add_argument("--num_steps", type=int, default=16)
     parser.add_argument("--num_eval_episodes", type=int, default=10)
     parser.add_argument("--eval_freq", type=int, default=50)
@@ -134,11 +133,29 @@ def make_env(cfg_path: str, meshcat=None):
     return _init
 
 
-def evaluate(agent: Agent, cfg_path: str, num_episodes: int, device: torch.device, meshcat=None):
-    """Run a fixed number of evaluation episodes (single env) and return mean success rate and overlap."""
-    envs = gym.vector.SyncVectorEnv([make_env(cfg_path, meshcat=meshcat)])
+def evaluate(
+    agent: Agent,
+    cfg_path: str,
+    num_episodes: int,
+    device: torch.device,
+    meshcat=None,
+    recording_path: str = None,
+):
+    """Run a fixed number of evaluation episodes (single env) and return mean success rate and overlap.
+
+    Always saves a Meshcat HTML recording to recording_path if provided, creating a local Meshcat
+    instance for recording if one is not passed in.
+    """
+    print(f"Running evaluation for {num_episodes} episodes...")
+    # Use provided meshcat or create a local one just for recording
+    eval_meshcat = meshcat if meshcat is not None else (Meshcat() if recording_path is not None else None)
+
+    envs = gym.vector.SyncVectorEnv([make_env(cfg_path, meshcat=eval_meshcat)])
     obs, _ = envs.reset()
     obs = torch.tensor(obs, dtype=torch.float32, device=device)
+
+    if eval_meshcat is not None:
+        eval_meshcat.StartRecording()
 
     successes = []
     overlaps = []
@@ -153,8 +170,18 @@ def evaluate(agent: Agent, cfg_path: str, num_episodes: int, device: torch.devic
                 successes.append(float(infos["success"][0]))
                 overlaps.append(float(infos["overlap"][0]))
 
+    if eval_meshcat is not None:
+        eval_meshcat.StopRecording()
+        eval_meshcat.PublishRecording()
+        if recording_path is not None:
+            with open(recording_path, "w") as f:
+                f.write(eval_meshcat.StaticHtml())
+            print(f"  [eval] Saved recording to {recording_path}")
+
+    sr, ov = float(np.mean(successes)), float(np.mean(overlaps))
+    print(f"  [eval] success_rate={sr:.3f}  mean_overlap={ov:.3f}")
     envs.close()
-    return float(np.mean(successes)), float(np.mean(overlaps))
+    return sr, ov
 
 
 def main():
@@ -200,9 +227,14 @@ def main():
         print(f"Loaded checkpoint from {args.checkpoint}")
 
     if args.evaluate:
-        print("Running evaluation...")
-        sr, ov = evaluate(agent, args.cfg_path, args.num_eval_episodes, device, meshcat=meshcat)
-        print(f"Success rate: {sr:.3f}, Mean overlap: {ov:.3f}")
+        sr, ov = evaluate(
+            agent,
+            args.cfg_path,
+            args.num_eval_episodes,
+            device,
+            meshcat=meshcat,
+            recording_path=os.path.join(log_dir, "eval.html"),
+        )
         envs.close()
         wandb.finish()
         return
@@ -229,6 +261,17 @@ def main():
     next_done = torch.zeros(n_envs, device=device)
 
     start_time = time.time()
+
+    # ── Initial evaluation (step 0) ────────────────────────────────────────────
+    sr, ov = evaluate(
+        agent,
+        args.cfg_path,
+        args.num_eval_episodes,
+        device,
+        meshcat=meshcat,
+        recording_path=os.path.join(log_dir, "eval_0.html"),
+    )
+    wandb.log({"eval/success_rate": sr, "eval/mean_overlap": ov}, step=0)
 
     for iteration in range(1, num_iterations + 1):
         # Optional learning rate annealing
@@ -365,9 +408,15 @@ def main():
 
         # ── Periodic evaluation ───────────────────────────────────────────────
         if iteration % args.eval_freq == 0:
-            sr, ov = evaluate(agent, args.cfg_path, args.num_eval_episodes, device, meshcat=meshcat)
+            sr, ov = evaluate(
+                agent,
+                args.cfg_path,
+                args.num_eval_episodes,
+                device,
+                meshcat=meshcat,
+                recording_path=os.path.join(log_dir, f"eval_{global_step}.html"),
+            )
             wandb.log({"eval/success_rate": sr, "eval/mean_overlap": ov}, step=global_step)
-            print(f"  [eval] success_rate={sr:.3f}  mean_overlap={ov:.3f}")
 
         # ── Save checkpoint ───────────────────────────────────────────────────
         if args.save_model and iteration % 100 == 0:
