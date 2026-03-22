@@ -31,7 +31,7 @@ from pydrake.all import Meshcat
 from torch.distributions.normal import Normal
 
 import wandb
-from rl_push_t.env.push_t_gym_env import PushTDrakeEnv
+from rl_push_t.envs.push_t_gym_env import PushTDrakeEnv
 
 # ── Neural network ─────────────────────────────────────────────────────────────
 
