@@ -342,7 +342,8 @@ class GcsPlannerController(LeafSystem):
                 output_name=f"arbitrary_small_t_pusher_trajectory_ORIGINAL_{new_slider_start_pose.x:.2f}_"
                 f"{new_slider_start_pose.y:.2f}_{new_slider_start_pose.theta:.2f}",
                 save_video=self._sim_config.save_gcs_videos,
-                interpolate_video=self._sim_config.save_gcs_videos,
+                # interpolate_video=self._sim_config.save_gcs_videos,
+                interpolate_video=False,
             )
             self._gcs_planner.load_original_path(CACHE_PATH)
         else:
@@ -358,7 +359,8 @@ class GcsPlannerController(LeafSystem):
                 output_name=f"arbitrary_small_t_pusher_trajectory_ORIGINAL_{new_slider_start_pose.x:.2f}_"
                 f"{new_slider_start_pose.y:.2f}_{new_slider_start_pose.theta:.2f}",
                 save_video=self._sim_config.save_gcs_videos,
-                interpolate_video=self._sim_config.save_gcs_videos,
+                # interpolate_video=self._sim_config.save_gcs_videos,
+                interpolate_video=False,
             )
             self._gcs_planner.original_path.save(CACHE_PATH)
 

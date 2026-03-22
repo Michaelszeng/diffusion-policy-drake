@@ -48,8 +48,8 @@ from planning_through_contact.visualize.analysis import (
     PlanarPushingLog,
 )
 
-# TRIALS_TO_SKIP = []
-TRIALS_TO_SKIP = [0]
+TRIALS_TO_SKIP = []
+# TRIALS_TO_SKIP = [0, 1]
 
 ONLY_1_TRIAL = False
 

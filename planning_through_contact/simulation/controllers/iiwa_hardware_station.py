@@ -478,7 +478,8 @@ class IiwaHardwareStation(RobotSystemBase):
 
         builder.BuildInto(self)
 
-        set_meshcat_camera_pose(self._meshcat, self._sim_config)  # For meshcat visualization
+        if self._meshcat is not None:
+            set_meshcat_camera_pose(self._meshcat, self._sim_config)  # For meshcat visualization
 
         # # Add triad to visualize pusher end effector
         # AddMultibodyTriad(

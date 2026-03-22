@@ -180,9 +180,7 @@ class IiwaPlanner(LeafSystem):
             )
             self.PlanGoPushStart(context, state)
         elif mode == IiwaPlannerMode.PUSHING:
-            # Just logging current position
-            current_pos = self.get_input_port(self._iiwa_position_measured_index).Eval(context)
-            # logger.debug(f"PUSHING: time {context.get_time()} Current position: {current_pos}")
+            return  # Nothing to do; DiffIK has full control
 
     def PlanGoPushStart(self, context, state):
         logger.debug(f"PlanGoPushStart at time {context.get_time()}.")
@@ -245,6 +243,18 @@ class IiwaPlanner(LeafSystem):
 
     def reset(self):
         self.reset_planner = True
+
+    def force_pushing_mode(self, root_context) -> None:
+        """
+        Directly set the planner into PUSHING mode, skipping GCS trajectory
+        planning and the startup delay. Call this after the robot has already
+        been positioned at the push start (e.g., via set_robot_position).
+
+        Only safe to call between simulator.Initialize() and the first AdvanceTo().
+        """
+        planner_context = self.GetMyContextFromRoot(root_context)
+        planner_context.get_mutable_abstract_state(int(self._mode_index)).set_value(IiwaPlannerMode.PUSHING)
+        self.reset_planner = False
 
     def create_go_push_start_traj(self, q_goal, q_start):
         """

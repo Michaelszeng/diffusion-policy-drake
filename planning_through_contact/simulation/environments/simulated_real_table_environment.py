@@ -27,9 +27,13 @@ from planning_through_contact.simulation.controllers.diffusion_policy_source imp
 from planning_through_contact.simulation.controllers.gamepad_controller_source import (
     GamepadControllerSource,
 )
-from planning_through_contact.simulation.controllers.gcs_planner_source import (
-    GcsPlannerSource,
-)
+
+try:
+    from planning_through_contact.simulation.controllers.gcs_planner_source import (
+        GcsPlannerSource,
+    )
+except ImportError:
+    GcsPlannerSource = None  # type: ignore  # gcs_planar_pushing not available
 from planning_through_contact.simulation.controllers.robot_system_base import (
     RobotSystemBase,
 )
@@ -65,6 +69,7 @@ class DesiredPositionSourceType(Enum):
     GAMEPAD = "gamepad"
     GCS_PLANNER = "gcs_planner"
     DIFFUSION_POLICY = "diffusion_policy"
+    RL = "rl"
 
 
 class SimulatedRealTableEnvironment:
@@ -79,10 +84,13 @@ class SimulatedRealTableEnvironment:
         self._desired_position_source = desired_position_source
         if isinstance(desired_position_source, DiffusionPolicySource):
             self._desired_position_source_type = DesiredPositionSourceType.DIFFUSION_POLICY
-        elif isinstance(desired_position_source, GcsPlannerSource):
+        elif GcsPlannerSource is not None and isinstance(desired_position_source, GcsPlannerSource):
             self._desired_position_source_type = DesiredPositionSourceType.GCS_PLANNER
         elif isinstance(desired_position_source, GamepadControllerSource):
             self._desired_position_source_type = DesiredPositionSourceType.GAMEPAD
+        elif hasattr(desired_position_source, "set_action"):
+            # RLActionSource or any source with a set_action() interface
+            self._desired_position_source_type = DesiredPositionSourceType.RL
         else:
             raise ValueError(f"Invalid desired position source type: {type(desired_position_source)}")
         self._robot_system = robot_system
@@ -123,6 +131,7 @@ class SimulatedRealTableEnvironment:
         if self._desired_position_source_type in [
             DesiredPositionSourceType.GCS_PLANNER,
             DesiredPositionSourceType.DIFFUSION_POLICY,
+            DesiredPositionSourceType.RL,
         ]:
             self._robot_state_to_rigid_transform = builder.AddNamedSystem(
                 "RobotStateToRigidTransform",
@@ -132,7 +141,11 @@ class SimulatedRealTableEnvironment:
                 ),
             )
 
-        if self._desired_position_source_type == DesiredPositionSourceType.GCS_PLANNER:
+        # Add object state converter for State-based policies
+        if self._desired_position_source_type in [
+            DesiredPositionSourceType.GCS_PLANNER,
+            DesiredPositionSourceType.RL,
+        ]:
             self._object_state_to_rigid_transform = builder.AddNamedSystem(
                 "ObjectStateToRigidTransform",
                 ObjectStateToRigidTransform(

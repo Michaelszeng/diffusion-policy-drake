@@ -1,0 +1,75 @@
+#!/bin/bash
+#SBATCH --job-name=rl_push_t_training
+#SBATCH --account=locomotion
+#SBATCH --partition=locomotion-h200
+#SBATCH --qos=locomotion-main
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus-per-node=1
+#SBATCH --cpus-per-task=160
+#SBATCH --mem=384G
+#SBATCH --time=120:00:00
+#SBATCH --output=logs/slurm-%j.out
+#SBATCH --error=logs/slurm-%j.err
+#SBATCH --requeue
+
+# Usage: sbatch rl_push_t/submit_rl_training_csail.sbatch
+
+# ============================================================================
+# Training hyperparameters
+# ============================================================================
+N_ENVS=150
+TOTAL_TIMESTEPS=500000000
+LR=3e-4
+NUM_STEPS=16
+NUM_MINIBATCHES=32
+UPDATE_EPOCHS=8
+EVAL_FREQ=50
+NUM_EVAL_EPISODES=10
+EXP_NAME="push_t_ppo"
+# ============================================================================
+
+DATE=`date +"%Y.%m.%d"`
+TIME=`date +"%H.%M.%S"`
+echo "DATE: $DATE"
+echo "TIME: $TIME"
+echo "SLURM Job ID: $SLURM_JOB_ID"
+echo "SLURM Node: $HOSTNAME"
+echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
+echo "SLURM_SUBMIT_DIR: $SLURM_SUBMIT_DIR"
+
+# --- Environment Setup ---
+echo "Changing directory to $SLURM_SUBMIT_DIR"
+cd "$SLURM_SUBMIT_DIR" || { echo "Failed to change directory to $SLURM_SUBMIT_DIR"; exit 1; }
+source env/bin/activate
+
+mkdir -p logs
+
+# --- WANDB Authentication ---
+export WANDB_USERNAME="michzeng"
+export WANDB_API_KEY="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"
+echo "WANDB_USERNAME and WANDB_API_KEY set for authentication."
+
+export HYDRA_FULL_ERROR=1
+export PYTHONPATH=$PWD:$PYTHONPATH
+
+echo "N_ENVS:           $N_ENVS"
+echo "TOTAL_TIMESTEPS:  $TOTAL_TIMESTEPS"
+echo "LR:               $LR"
+echo "NUM_STEPS:        $NUM_STEPS"
+echo "NUM_MINIBATCHES:  $NUM_MINIBATCHES"
+echo "UPDATE_EPOCHS:    $UPDATE_EPOCHS"
+echo "EXP_NAME:         $EXP_NAME"
+echo "=========================================="
+
+python rl_push_t/ppo.py \
+    --exp_name=$EXP_NAME \
+    --n_envs=$N_ENVS \
+    --total_timesteps=$TOTAL_TIMESTEPS \
+    --lr=$LR \
+    --num_steps=$NUM_STEPS \
+    --num_minibatches=$NUM_MINIBATCHES \
+    --update_epochs=$UPDATE_EPOCHS \
+    --eval_freq=$EVAL_FREQ \
+    --num_eval_episodes=$NUM_EVAL_EPISODES \
+    --cuda

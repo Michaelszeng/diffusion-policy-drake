@@ -150,8 +150,12 @@ def get_slider_sdf_path(sim_config=None, collision_geometry=None) -> str:
 def create_arbitrary_shape_sdf_file(cfg, physical_properties, collision_geometry):
     """
     Creates an SDF file for an arbitrary shape based on the pickle file.
+    Skips creation if the file already exists (idempotent; safe for multiprocess use).
     """
     sdf_path = get_slider_sdf_path(collision_geometry=collision_geometry)
+
+    if os.path.exists(sdf_path):
+        return
 
     translation = -np.concatenate(
         [collision_geometry.com_offset.flatten(), [0]]
@@ -465,7 +469,7 @@ def get_slider_initial_pose_within_workspace(
     rotation_limit: float = None,
     timeout_s: float = 10.0,
     rng: Optional[np.random.Generator] = None,
-    GOAL_EXCLUSION_RADIUS: float = 0  # Disable goal exclusion
+    GOAL_EXCLUSION_RADIUS: float = 0,  # Disable goal exclusion
 ) -> Optional["PlanarPose"]:
     """
     Generates a random valid pose for a slider object that avoids collisions with the pusher
@@ -497,14 +501,12 @@ def get_slider_initial_pose_within_workspace(
             th_initial = rng.uniform(-np.pi + EPS, np.pi - EPS)
 
         slider_pose = PlanarPose(x_initial, y_initial, th_initial)
-        
+
         # First, check that the initial pose is not already within some tolerance of success pose
-        dist_to_goal = np.linalg.norm(
-            slider_pose.vector()[:2] - slider_goal_pose.vector()[:2]
-        )
+        dist_to_goal = np.linalg.norm(slider_pose.vector()[:2] - slider_goal_pose.vector()[:2])
         if dist_to_goal < GOAL_EXCLUSION_RADIUS:
-            continue          # resample
-        
+            continue  # resample
+
         # Now, check collision free
         collides_with_pusher = collision_checker.check_collision(slider_pose, pusher_pose)  # Z-height doesn't matter
         # collision_checker.visualize_once(slider_pose, pusher_pose)  # debug visualization

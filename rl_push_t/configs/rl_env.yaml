@@ -1,0 +1,74 @@
+########################################################################################################################
+### RL Drake Push-T Environment Config
+### Matches run_sim_sim_eval.py / gamepad_teleop_carbon.yaml parameters.
+### Use with PushTDrakeEnv(cfg_path="rl_push_t/configs/rl_env.yaml").
+########################################################################################################################
+
+########################################################################################################################
+### PlanarPushingSimConfig
+########################################################################################################################
+slider_type: 'arbitrary'
+arbitrary_shape_pickle_path: arbitrary_shape_pickles/small_t_pusher.pkl
+arbitrary_shape_rgba: [0.15, 0.15, 0.15, 1.0]
+arbitrary_shape_visual_mesh_path: null
+
+physical_properties:
+  _target_: planning_through_contact.geometry.physical_properties.PhysicalProperties
+  mass: 0.1
+  inertia: [[1e-5, 0.0, 0.0], [0.0, 1e-5, 0.0], [0.0, 0.0, 1e-5]]
+  center_of_mass: null  # Use null for uniform density
+  is_compliant: true
+  hydroelastic_modulus: 1.0e6
+  mu_dynamic: 0.5
+  mu_static: 0.5
+  mesh_resolution_hint: 0.01
+
+contact_model: ContactModel.kHydroelastic
+visualize_desired: false
+
+slider_goal_pose:
+  _target_: planning_through_contact.geometry.planar.planar_pose.PlanarPose
+  x: 0.587
+  y: -0.0355
+  theta: 0.0
+
+pusher_start_pose:
+  _target_: planning_through_contact.geometry.planar.planar_pose.PlanarPose
+  x: 0.587
+  y: 0.15
+  theta: 0.0
+
+time_step: 0.001
+
+draw_frames: false
+use_realtime: false
+delay_before_execution: 2.0  # Not used by RL env (force_pushing_mode skips the delay)
+save_plots: false
+use_hardware: false
+pusher_radius: 0.015
+pusher_z_offset: 0.015
+log_dir: null
+domain_randomization_color_range: 0.0
+camera_configs: []  # No cameras needed for RL training
+
+########################################################################################################################
+### Robot specific configs
+########################################################################################################################
+default_joint_positions: [0.6202, 1.0135, -0.5873, -1.4182, 0.6449, 0.8986, 2.98796]
+joint_velocity_limit_factor: 1.0
+
+robot_station:
+  _target_: planning_through_contact.simulation.controllers.iiwa_hardware_station.IiwaHardwareStation
+  sim_config: null
+  meshcat: null
+
+########################################################################################################################
+### RL-specific parameters (not part of PlanarPushingSimConfig)
+########################################################################################################################
+rl:
+  action_scale: 0.01          # metres per step (0.02 m / 0.1 s = 0.2 m/s max EE speed)
+  max_episode_steps: 200      # 200 steps × 0.1 s = 20 s per episode
+  control_dt: 0.1             # seconds per RL step
+  success_overlap_thresh: 0.9 # fraction of goal T area that must be covered
+  workspace_width: 0.4        # slider init x range: goal_x ± width/2 (m)
+  workspace_height: 0.3       # slider init y range: goal_y ± height/2 (m)
