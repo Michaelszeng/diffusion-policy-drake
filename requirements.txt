@@ -1,10 +1,11 @@
 # Requirements for diffusion-policy-drake
 # Generated from poetry env (Python 3.10)
 #
-# Setup on SLURM cluster:
-#   python3.10 -m venv env
-#   source env/bin/activate
-#   pip install -r requirements.txt
+# python3 -m venv env --without-pip
+# source env/bin/activate
+# curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+# python3 /tmp/get-pip.py --no-warn-script-location
+# pip install -r requirements.txt
 #
 # Then install editable packages from their repos:
 #   pip install -e .                                          # this repo (planning_through_contact)
@@ -161,6 +162,7 @@ scikit-video==1.1.11
 scipy==1.15.3
 sentry-sdk==2.48.0
 setproctitle==1.3.7
+setuptools<70.0.0
 Shapely==1.8.4
 shortuuid==1.0.13
 six==1.17.0

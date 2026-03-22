@@ -7,7 +7,10 @@ Uses gymnasium.vector.AsyncVectorEnv to parallelize across CPU cores.
 Example usage:
     python rl_push_t/ppo.py --n_envs=16 --total_timesteps=100_000_000
 
-    # Resume from checkpoint:
+    # Auto-resume (looks for latest.ckpt in the run directory):
+    python rl_push_t/ppo.py --exp_name=push_t_ppo --resume
+
+    # Resume from a specific checkpoint (weights only, no training state):
     python rl_push_t/ppo.py --checkpoint=runs/<name>/model.pt
 
     # Evaluate:
@@ -90,6 +93,10 @@ def parse_args():
     parser.add_argument("--save_model", action="store_true", default=True)
     parser.add_argument("--evaluate", action="store_true")
     parser.add_argument("--checkpoint", type=str, default=None)
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="Auto-resume from latest.ckpt in the run directory if it exists",
+    )
 
     # Env
     parser.add_argument("--cfg_path", type=str, default="rl_push_t/configs/rl_env.yaml")
@@ -184,6 +191,23 @@ def evaluate(
     return sr, ov
 
 
+def _save_checkpoint(path, agent, optimizer, obs_dim, act_dim, args, iteration, global_step, wandb_run_id):
+    """Save a full training checkpoint (model + optimizer + training progress)."""
+    torch.save(
+        {
+            "agent_state_dict": agent.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "obs_dim": obs_dim,
+            "act_dim": act_dim,
+            "args": vars(args),
+            "iteration": iteration,
+            "global_step": global_step,
+            "wandb_run_id": wandb_run_id,
+        },
+        path,
+    )
+
+
 def main():
     args = parse_args()
 
@@ -192,7 +216,25 @@ def main():
     log_dir = os.path.join(args.log_dir, run_name)
     os.makedirs(log_dir, exist_ok=True)
 
-    wandb.init(project=args.wandb_project, name=run_name, config=vars(args))
+    # ── Resume logic ──────────────────────────────────────────────────────────
+    latest_ckpt_path = os.path.join(log_dir, "latest.ckpt")
+    resume_ckpt = None
+    if args.resume and os.path.isfile(latest_ckpt_path):
+        print(f"Found existing checkpoint at {latest_ckpt_path}, resuming...")
+        args.checkpoint = latest_ckpt_path
+        resume_ckpt = torch.load(latest_ckpt_path, map_location="cpu")
+    elif args.resume:
+        print("--resume passed but no latest.ckpt found; starting from scratch.")
+
+    wandb_resume = "must" if resume_ckpt is not None else None
+    wandb_run_id = resume_ckpt["wandb_run_id"] if resume_ckpt is not None else wandb.util.generate_id()
+    wandb.init(
+        project=args.wandb_project,
+        name=run_name,
+        id=wandb_run_id,
+        resume=wandb_resume,
+        config=vars(args),
+    )
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -221,10 +263,18 @@ def main():
     agent = Agent(obs_dim, act_dim).to(device)
     optimizer = optim.Adam(agent.parameters(), lr=args.lr, eps=1e-5)
 
+    start_iteration = 0
+    start_global_step = 0
     if args.checkpoint is not None:
         ckpt = torch.load(args.checkpoint, map_location=device)
         agent.load_state_dict(ckpt["agent_state_dict"])
-        print(f"Loaded checkpoint from {args.checkpoint}")
+        if "optimizer_state_dict" in ckpt:
+            optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        if "iteration" in ckpt:
+            start_iteration = ckpt["iteration"]
+        if "global_step" in ckpt:
+            start_global_step = ckpt["global_step"]
+        print(f"Loaded checkpoint from {args.checkpoint} (iteration={start_iteration}, global_step={start_global_step})")
 
     if args.evaluate:
         sr, ov = evaluate(
@@ -254,7 +304,7 @@ def main():
 
     # ── Training loop ──────────────────────────────────────────────────────────
     num_iterations = args.total_timesteps // batch_size
-    global_step = 0
+    global_step = start_global_step
 
     next_obs_np, _ = envs.reset()
     next_obs = torch.tensor(next_obs_np, dtype=torch.float32, device=device)
@@ -262,18 +312,21 @@ def main():
 
     start_time = time.time()
 
-    # ── Initial evaluation (step 0) ────────────────────────────────────────────
-    sr, ov = evaluate(
-        agent,
-        args.cfg_path,
-        args.num_eval_episodes,
-        device,
-        meshcat=meshcat,
-        recording_path=os.path.join(log_dir, "eval_0.html"),
-    )
-    wandb.log({"eval/success_rate": sr, "eval/mean_overlap": ov}, step=0)
+    # ── Initial evaluation (step 0) — skip if resuming ────────────────────────
+    if start_iteration == 0:
+        sr, ov = evaluate(
+            agent,
+            args.cfg_path,
+            args.num_eval_episodes,
+            device,
+            meshcat=meshcat,
+            recording_path=os.path.join(log_dir, "eval_0.html"),
+        )
+        wandb.log({"eval/success_rate": sr, "eval/mean_overlap": ov}, step=0)
+    else:
+        print(f"Resuming from iteration {start_iteration}, global_step {global_step}")
 
-    for iteration in range(1, num_iterations + 1):
+    for iteration in range(start_iteration + 1, num_iterations + 1):
         # Optional learning rate annealing
         if args.anneal_lr:
             frac = 1.0 - (iteration - 1) / num_iterations
@@ -421,29 +474,16 @@ def main():
         # ── Save checkpoint ───────────────────────────────────────────────────
         if args.save_model and iteration % 100 == 0:
             model_path = os.path.join(log_dir, f"model_{iteration}.pt")
-            torch.save(
-                {
-                    "agent_state_dict": agent.state_dict(),
-                    "obs_dim": obs_dim,
-                    "act_dim": act_dim,
-                    "args": vars(args),
-                },
-                model_path,
-            )
+            _save_checkpoint(model_path, agent, optimizer, obs_dim, act_dim, args, iteration, global_step, wandb_run_id)
+            _save_checkpoint(latest_ckpt_path, agent, optimizer, obs_dim, act_dim, args, iteration, global_step, wandb_run_id)
+            print(f"  Saved checkpoint: {model_path} + latest.ckpt")
 
     # Final save
     if args.save_model:
         model_path = os.path.join(log_dir, "model.pt")
-        torch.save(
-            {
-                "agent_state_dict": agent.state_dict(),
-                "obs_dim": obs_dim,
-                "act_dim": act_dim,
-                "args": vars(args),
-            },
-            model_path,
-        )
-        print(f"Saved model to {model_path}")
+        _save_checkpoint(model_path, agent, optimizer, obs_dim, act_dim, args, iteration, global_step, wandb_run_id)
+        _save_checkpoint(latest_ckpt_path, agent, optimizer, obs_dim, act_dim, args, iteration, global_step, wandb_run_id)
+        print(f"Saved final model to {model_path} + latest.ckpt")
 
     envs.close()
     wandb.finish()

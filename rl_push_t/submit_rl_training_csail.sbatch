@@ -6,8 +6,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=1
-#SBATCH --cpus-per-task=160
-#SBATCH --mem=384G
+#SBATCH --cpus-per-task=92
+#SBATCH --mem=128G
 #SBATCH --time=120:00:00
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
@@ -18,13 +18,13 @@
 # ============================================================================
 # Training hyperparameters
 # ============================================================================
-N_ENVS=150
+N_ENVS=84
 TOTAL_TIMESTEPS=500000000
 LR=3e-4
 NUM_STEPS=16
 NUM_MINIBATCHES=32
 UPDATE_EPOCHS=8
-EVAL_FREQ=50
+EVAL_FREQ=100
 NUM_EVAL_EPISODES=10
 EXP_NAME="push_t_ppo"
 # ============================================================================
