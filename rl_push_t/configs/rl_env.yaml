@@ -55,7 +55,7 @@ camera_configs: []  # No cameras needed for RL training
 ### Robot specific configs
 ########################################################################################################################
 default_joint_positions: [0.6202, 1.0135, -0.5873, -1.4182, 0.6449, 0.8986, 2.98796]
-joint_velocity_limit_factor: 1.0
+joint_velocity_limit_factor: 0.5
 
 robot_station:
   _target_: planning_through_contact.simulation.controllers.iiwa_hardware_station.IiwaHardwareStation
@@ -66,7 +66,7 @@ robot_station:
 ### RL-specific parameters (not part of PlanarPushingSimConfig)
 ########################################################################################################################
 rl:
-  action_scale: 0.01          # metres per step (0.02 m / 0.1 s = 0.2 m/s max EE speed)
+  action_scale: 0.05          # metres per step (0.02 m / 0.1 s = 0.2 m/s max EE speed)
   max_episode_steps: 200      # 200 steps × 0.1 s = 20 s per episode
   control_dt: 0.1             # seconds per RL step
   success_overlap_thresh: 0.9 # fraction of goal T area that must be covered

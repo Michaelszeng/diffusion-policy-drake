@@ -211,8 +211,19 @@ def _save_checkpoint(path, agent, optimizer, obs_dim, act_dim, args, iteration, 
 def main():
     args = parse_args()
 
-    exp_name = args.exp_name or f"push_t_ppo_{int(time.time())}"
-    run_name = f"{exp_name}_s{args.seed}"
+    exp_name = args.exp_name or "push_t_ppo"
+
+    # Find the next available run number
+    run_num = 1
+    if not args.resume:
+        while os.path.exists(os.path.join(args.log_dir, f"{exp_name}_{run_num}")):
+            run_num += 1
+    else:
+        # When resuming, find the latest existing run
+        while os.path.exists(os.path.join(args.log_dir, f"{exp_name}_{run_num + 1}")):
+            run_num += 1
+
+    run_name = f"{exp_name}_{run_num}"
     log_dir = os.path.join(args.log_dir, run_name)
     os.makedirs(log_dir, exist_ok=True)
 

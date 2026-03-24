@@ -9,8 +9,8 @@
 #
 # Then install editable packages from their repos:
 #   pip install -e .                                          # this repo (planning_through_contact)
-#   pip install -e /path/to/diffusion-policy-experiments     # diffusion_policy
-#   pip install -e /path/to/gcs-planar-pushing               # gcs_planar_pushing
+#   pip install -e /data/locomotion/michzeng/diffusion-policy-experiments     # diffusion_policy
+#   pip install -e /data/locomotion/michzeng/gcs-planar-pushing               # gcs_planar_pushing
 #
 # Drake must be Python 3.10 compatible; install via:
 #   pip install drake==1.48.0

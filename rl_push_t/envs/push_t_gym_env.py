@@ -4,9 +4,10 @@ Gymnasium environment for the planar Push-T task in Drake, using IiwaHardwareSta
 The environment wraps a full Drake simulation of the Kuka Iiwa arm pushing the
 small_t_pusher slider, matching the setup used in run_sim_sim_eval.py.
 
-Observation (10D):
-  [pusher_x, pusher_y, slider_x, slider_y, cos(slider_theta), sin(slider_theta),
-   goal_x, goal_y, cos(goal_theta), sin(goal_theta)]
+Observation (6D), all expressed relative to the goal pose:
+  [pusher_x - goal_x, pusher_y - goal_y,
+   slider_x - goal_x, slider_y - goal_y,
+   cos(slider_theta - goal_theta), sin(slider_theta - goal_theta)]
 
 Action (2D):
   [delta_x, delta_y] in [-1, 1], scaled by action_scale meters/step
@@ -69,7 +70,7 @@ class PushTDrakeEnv(Env):
         self._rl_cfg = cfg.get("rl", {})
 
         # Gym spaces
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(10,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32)
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
 
         # Build the Drake simulation (expensive, done once per process)
@@ -126,7 +127,11 @@ class PushTDrakeEnv(Env):
         )
 
     def _get_obs(self) -> np.ndarray:
-        """Read current observation from the Drake MultibodyPlant context."""
+        """Read current observation from the Drake MultibodyPlant context.
+
+        All positions and orientations are expressed relative to the goal pose so
+        that inputs are centered near zero with comparable x/y scales.
+        """
         # Slider pose (from generalized coords: [qw,qx,qy,qz, x,y,z])
         slider_q = self._plant.GetPositions(self._mbp_context, self._slider_model_instance)
         slider_pose = PlanarPose.from_generalized_coords(slider_q)
@@ -136,44 +141,48 @@ class PushTDrakeEnv(Env):
         pusher_x = pusher_tf.translation()[0]
         pusher_y = pusher_tf.translation()[1]
 
+        rel_theta = slider_pose.theta - self._slider_goal_pose.theta
+
         return np.array(
             [
-                pusher_x,
-                pusher_y,
-                slider_pose.x,
-                slider_pose.y,
-                np.cos(slider_pose.theta),
-                np.sin(slider_pose.theta),
-                self._slider_goal_pose.x,
-                self._slider_goal_pose.y,
-                np.cos(self._slider_goal_pose.theta),
-                np.sin(self._slider_goal_pose.theta),
+                pusher_x - self._slider_goal_pose.x,
+                pusher_y - self._slider_goal_pose.y,
+                slider_pose.x - self._slider_goal_pose.x,
+                slider_pose.y - self._slider_goal_pose.y,
+                np.cos(rel_theta),
+                np.sin(rel_theta),
             ],
             dtype=np.float32,
         )
 
-    def _compute_reward(self, obs: np.ndarray):
+    def _compute_reward(self, obs: np.ndarray, debug: bool = False):
         """
         Dense reward ported from ManiSkill planar_push_t.py:554-598.
         Normalized to [0, 1] (max reward = 1.0 on success).
+
+        obs is the relative observation:
+          [pusher_rel_x, pusher_rel_y, slider_rel_x, slider_rel_y, cos(rel_theta), sin(rel_theta)]
+
+        If debug=True, prints all reward components on a single overwritten line.
         """
-        pusher_x, pusher_y = obs[0], obs[1]
-        slider_x, slider_y = obs[2], obs[3]
-        slider_theta = np.arctan2(obs[5], obs[4])  # sin/cos → theta
+        pusher_rel_x, pusher_rel_y = obs[0], obs[1]
+        slider_rel_x, slider_rel_y = obs[2], obs[3]
 
-        # Rotation alignment reward
-        rot_rew = np.cos(slider_theta - self._slider_goal_pose.theta)
-        reward = ((rot_rew + 1.0) / 2.0) ** 2 / 2.0
+        # obs[4] = cos(slider_theta - goal_theta), which is exactly what rot_rew needs
+        rot_component = ((obs[4] + 1.0) / 2.0) ** 2 / 2.0
 
-        # Translation reward (T center → goal center)
-        dist_T = np.hypot(slider_x - self._slider_goal_pose.x, slider_y - self._slider_goal_pose.y)
-        reward += ((1.0 - np.tanh(5.0 * dist_T)) ** 2) / 2.0
+        dist_T = np.hypot(slider_rel_x, slider_rel_y)
+        trans_component = ((1.0 - np.tanh(5.0 * dist_T)) ** 2) / 2.0
 
-        # EE proximity reward (pusher → T center)
-        dist_push = np.hypot(pusher_x - slider_x, pusher_y - slider_y)
-        reward += np.sqrt(max(1.0 - np.tanh(5.0 * dist_push), 0.0)) / 20.0
+        dist_push = np.hypot(pusher_rel_x - slider_rel_x, pusher_rel_y - slider_rel_y)
+        ee_component = np.sqrt(max(1.0 - np.tanh(5.0 * dist_push), 0.0)) / 10.0
 
-        # Overlap-based success check
+        reward = rot_component + trans_component + ee_component
+
+        # Overlap-based success check (needs absolute coordinates)
+        slider_x = slider_rel_x + self._slider_goal_pose.x
+        slider_y = slider_rel_y + self._slider_goal_pose.y
+        slider_theta = np.arctan2(obs[5], obs[4]) + self._slider_goal_pose.theta
         overlap = compute_tee_overlap(
             slider_x,
             slider_y,
@@ -185,6 +194,15 @@ class PushTDrakeEnv(Env):
         success = overlap >= self._rl_cfg.get("success_overlap_thresh", 0.9)
         if success:
             reward = 3.0
+
+        if debug:
+            print(
+                f"\r  rot={rot_component:.3f}  trans={trans_component:.3f}"
+                f"  ee={ee_component:.3f}  total={reward / 3.0:.3f}"
+                f"  overlap={overlap:.3f}  success={success}     ",
+                end="",
+                flush=True,
+            )
 
         return reward / 3.0, success, overlap
 
