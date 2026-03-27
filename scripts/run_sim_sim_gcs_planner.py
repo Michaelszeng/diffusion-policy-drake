@@ -48,8 +48,12 @@ from planning_through_contact.visualize.analysis import (
     PlanarPushingLog,
 )
 
-TRIALS_TO_SKIP = []
-# TRIALS_TO_SKIP = [0, 1]
+# TRIALS_TO_SKIP = []
+TRIALS_TO_SKIP = [
+    0,
+    1,
+    2,
+]
 
 ONLY_1_TRIAL = False
 
@@ -59,13 +63,15 @@ logging.getLogger("drake").setLevel(logging.DEBUG)
 
 
 class SimSimGcsPlanner:
-    def __init__(self, cfg: OmegaConf, output_dir: str = None, collect_data: bool = False):
+    def __init__(
+        self, cfg: OmegaConf, output_dir: str = None, collect_data: bool = False, debug_action_plots: bool = False
+    ):
         station_meshcat = StartMeshcat()
 
         # load sim_config
         self.cfg = cfg
         self.output_dir = output_dir
-
+        self.debug_action_plots = debug_action_plots
         # Hold system-wide lock during writing and reading of small_table_hydroelastic.urdf and arbitrary_shape.sdf.
         # After this locked code block is finished, other processes are free to modify these files without affecting
         # this process.
@@ -107,6 +113,7 @@ class SimSimGcsPlanner:
             shutil.rmtree(image_writer_dir)
 
         # Set up environment
+        print(f"Using arbitrary shape pickle path: {cfg.arbitrary_shape_pickle_path}")
         self.environment = SimulatedRealTableEnvironment(
             desired_position_source=position_source,
             robot_system=position_controller,
@@ -280,14 +287,7 @@ class SimSimGcsPlanner:
                         summary["trial_times"].append(self.multi_run_config.max_attempt_duration)
 
                 except Exception as e:
-                    # Re-initialize the simulator to resync its internal time tracking. If an
-                    # exception escapes AdvanceTo() (e.g. AssertionError from the GCS planner),
-                    # Drake's last_known_simtime_ is left inconsistent, causing every subsequent
-                    # AdvanceTo() call to fail with "Simulation time has changed".
-                    self.environment._simulator.Initialize()
-
-                    # Check if we succeeded despite the error (e.g. planner failed because we are at goal)
-                    # This often happens with GCS planner when the start and goal are very close
+                    # Check if we succeeded despite the error
                     if self.evaluator.check_success():
                         success_count += 1
                         trial_success = True
@@ -303,8 +303,22 @@ class SimSimGcsPlanner:
 
                         summary["trial_result"].append("error")
                         summary["trial_times"].append(current_time - self.traj_start_time)
-                    # Continue to next trial
-                    pass
+
+                    # Re-initialize the simulator to resync its internal time tracking. If an
+                    # exception escapes AdvanceTo() (e.g. AssertionError from the GCS planner),
+                    # Drake's last_known_simtime_ is left inconsistent, causing every subsequent
+                    # AdvanceTo() call to fail with "Simulation time has changed".
+                    self.environment._simulator.Initialize()
+
+                finally:
+                    if self.debug_action_plots:
+                        action_log, pusher_log = self.environment.get_gcs_planner_logs()
+                        if action_log is not None and pusher_log is not None:
+                            from planning_through_contact.simulation.controllers.gcs_planner_controller import (
+                                plot_gcs_controller_logs,
+                            )
+
+                            plot_gcs_controller_logs(action_log, pusher_log, self.environment.context)
 
                 # Logging
                 final_error = self.evaluator.get_final_error()
@@ -333,7 +347,8 @@ class SimSimGcsPlanner:
 
             summary["total_eval_sim_time"] = current_time
             summary["total_eval_wall_time"] = time.time() - start_time
-            generate_analysis_summary(self.output_dir, summary, self.multi_run_config, self.cfg)
+            if len(summary["trial_times"]) > 0:
+                generate_analysis_summary(self.output_dir, summary, self.multi_run_config, self.cfg)
 
             if self.collect_data:
                 self._save_to_zarr()

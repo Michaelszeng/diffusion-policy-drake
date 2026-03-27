@@ -154,9 +154,6 @@ def create_arbitrary_shape_sdf_file(cfg, physical_properties, collision_geometry
     """
     sdf_path = get_slider_sdf_path(collision_geometry=collision_geometry)
 
-    if os.path.exists(sdf_path):
-        return
-
     translation = -np.concatenate(
         [collision_geometry.com_offset.flatten(), [0]]
     )  # Plan assumes that object frame = CoM frame

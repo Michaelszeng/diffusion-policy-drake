@@ -178,8 +178,6 @@ class GcsPlannerController(LeafSystem):
         current_slider_pose = PlanarPose.from_pose(current_slider_rigid_transform)
         current_pusher_pose = PlanarPose.from_pose(current_pusher_rigid_transform)
         current_pusher_vel = self.pusher_velocity.Eval(context)
-        # self.current_slider_pose = current_slider_pose
-        # self.current_pusher_pose = current_pusher_pose
         # current_pusher_vel = None
         # current_slider_pose = self._gcs_planner.original_traj.get_slider_planar_pose(time_since_traj_start)
         # current_pusher_pose = self._gcs_planner.original_traj.get_pusher_planar_pose(time_since_traj_start)
@@ -224,7 +222,7 @@ class GcsPlannerController(LeafSystem):
             start = time.time()
             if self._detected_contact:
                 print("    ******************************* CONTACT DETECTED *******************************")
-            if _time >= 9999.4:
+            if trial_step >= 3499:
                 new_traj, traj_cost = self._gcs_planner.plan(
                     t=time_since_traj_start,
                     current_slider_pose=current_slider_pose,
@@ -232,12 +230,13 @@ class GcsPlannerController(LeafSystem):
                     current_pusher_velocity=current_pusher_vel,
                     is_in_contact=self._detected_contact,
                     save_video=True,
-                    save_unrounded_video=True,
-                    output_folder="temp_videos_seed_double_plan",
+                    # save_unrounded_video=True,
+                    save_unrounded_video=False,
+                    output_folder="temp_videos_3_27_26",
                     output_name=f"traj_{trial_step}",
                     # rounded=not self._detected_contact,
-                    rounded=False,
-                    # rounded=True,
+                    # rounded=False,
+                    rounded=True,
                     success=success,
                 )
             else:
@@ -248,8 +247,8 @@ class GcsPlannerController(LeafSystem):
                     current_pusher_velocity=current_pusher_vel,
                     is_in_contact=self._detected_contact,
                     # rounded=not self._detected_contact,
-                    rounded=False,
-                    # rounded=True,
+                    # rounded=False,
+                    rounded=True,
                     success=success,
                 )
             self._detected_contact = False  # Reset contact detection flag
@@ -339,10 +338,9 @@ class GcsPlannerController(LeafSystem):
                 double_plan=True,
                 plan=False,
                 output_folder="trajectories_mpc",
-                output_name=f"arbitrary_small_t_pusher_trajectory_ORIGINAL_{new_slider_start_pose.x:.2f}_"
-                f"{new_slider_start_pose.y:.2f}_{new_slider_start_pose.theta:.2f}",
+                output_name=f"arbitrary_small_t_pusher_trajectory_ORIGINAL_{new_slider_start_pose.x:.3f}_"
+                f"{new_slider_start_pose.y:.3f}_{new_slider_start_pose.theta:.3f}",
                 save_video=self._sim_config.save_gcs_videos,
-                # interpolate_video=self._sim_config.save_gcs_videos,
                 interpolate_video=False,
             )
             self._gcs_planner.load_original_path(CACHE_PATH)
@@ -356,10 +354,9 @@ class GcsPlannerController(LeafSystem):
                 double_plan=True,
                 plan=True,
                 output_folder="trajectories_mpc",
-                output_name=f"arbitrary_small_t_pusher_trajectory_ORIGINAL_{new_slider_start_pose.x:.2f}_"
-                f"{new_slider_start_pose.y:.2f}_{new_slider_start_pose.theta:.2f}",
+                output_name=f"arbitrary_small_t_pusher_trajectory_ORIGINAL_{new_slider_start_pose.x:.3f}_"
+                f"{new_slider_start_pose.y:.3f}_{new_slider_start_pose.theta:.3f}",
                 save_video=self._sim_config.save_gcs_videos,
-                # interpolate_video=self._sim_config.save_gcs_videos,
                 interpolate_video=False,
             )
             self._gcs_planner.original_path.save(CACHE_PATH)
@@ -423,6 +420,10 @@ def plot_gcs_controller_logs(action_log, pusher_log, root_context):
     pusher_times = pusher_log_data.sample_times()
     pusher_values = pusher_log_data.data()
 
+    if len(action_times) == 0 or len(pusher_times) == 0:
+        print("Warning: No data to plot.")
+        return
+
     fig, ax = plt.subplots(figsize=(10, 8))
     plt.subplots_adjust(bottom=0.25)
 
@@ -474,4 +475,5 @@ def plot_gcs_controller_logs(action_log, pusher_log, root_context):
 
     time_slider.on_changed(update)
     update(t_min)
-    plt.show()
+    plt.show(block=False)
+    plt.pause(0.001)
