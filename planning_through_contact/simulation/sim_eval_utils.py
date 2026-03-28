@@ -304,8 +304,14 @@ class MeshcatRecordingManager:
 
     def finalize(self):
         """Save any remaining recorded trials."""
-        if self._active and self._trials_in_chunk > 0:
-            self._save_chunk()
+        if self._active:
+            # If we're finalizing but haven't completed a trial yet (e.g. interrupted),
+            # we should still save the partial recording.
+            if self._trials_in_chunk == 0:
+                self._trials_in_chunk = 1
+
+            filename = self._chunk_filename()
+            self._environment.save_recording(filename, self._output_dir)
         self._active = False
 
     def _save_chunk(self):

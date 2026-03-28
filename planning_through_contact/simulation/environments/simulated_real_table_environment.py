@@ -320,7 +320,7 @@ class SimulatedRealTableEnvironment:
         z_value = height / 2
 
         # add a small height to avoid the box penetrating the table
-        q = pose.to_generalized_coords(z_value + 1e-3, z_axis_is_positive=True)
+        q = pose.to_generalized_coords(z_value + 5e-4, z_axis_is_positive=True)
         self._plant.SetPositions(self.mbp_context, self._slider, q)
         self._plant.SetVelocities(self.mbp_context, self._slider, np.zeros(6))
 

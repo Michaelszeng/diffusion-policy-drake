@@ -78,6 +78,7 @@ class GcsPlannerController(LeafSystem):
         self._pusher_penetration_offset = np.array([0.0, 0.0])
         self._time = 0.0
         self._last_plan_trial_step = -1  # Step index within current trial
+        self._last_plan_time = None  # Sim time of the last accepted full replan (None until first plan)
         self._detected_contact = False  # Flag to indicate if contact has been detected in the current cycle
         self._ready = False  # Set True by reset(); prevents stale planning during return-to-start
         self._consecutive_failures = 0  # Count of consecutive solver failures (None result or cost > 5e4)
@@ -91,8 +92,7 @@ class GcsPlannerController(LeafSystem):
             use_case="drake_iiwa",
         )
         self.planner_config = config
-        solver_params = get_default_solver_params()
-        self.solver_params = solver_params
+        self.solver_params = get_default_solver_params()
         self.traj = None
 
         # Input port for pusher pose
@@ -126,6 +126,7 @@ class GcsPlannerController(LeafSystem):
         self.debug_pusher_pose = self.DeclareVectorOutputPort("debug_pusher_pose", 2, self.DoCalcDebugPusherPose)
 
     def check_success(self, current_slider_pose: PlanarPose, current_pusher_pose: PlanarPose) -> bool:
+        """Just check that slider is within goal tolerance. Used to allow early-exit for GCS planner"""
         cfg = self._sim_config.multi_run_config
         if cfg.success_criteria == "tolerance":
             return check_success_tolerance(
@@ -178,8 +179,6 @@ class GcsPlannerController(LeafSystem):
         current_slider_pose = PlanarPose.from_pose(current_slider_rigid_transform)
         current_pusher_pose = PlanarPose.from_pose(current_pusher_rigid_transform)
         current_pusher_vel = self.pusher_velocity.Eval(context)
-        # self.current_slider_pose = current_slider_pose
-        # self.current_pusher_pose = current_pusher_pose
         # current_pusher_vel = None
         # current_slider_pose = self._gcs_planner.original_traj.get_slider_planar_pose(time_since_traj_start)
         # current_pusher_pose = self._gcs_planner.original_traj.get_pusher_planar_pose(time_since_traj_start)
@@ -195,27 +194,6 @@ class GcsPlannerController(LeafSystem):
         if trial_step > self._last_plan_trial_step:
             self._last_plan_trial_step = trial_step
             print(f"Sim time: {_time:.4f}s | Trial step: {trial_step}")
-            # print(f"    current_slider_pose: {current_slider_pose}")
-            # print(f"    current_pusher_pose: {current_pusher_pose}")
-            # if current_pusher_vel is not None:
-            #     print(f"    current_pusher_vel: {current_pusher_vel} (norm: {np.linalg.norm(current_pusher_vel)})")
-
-            # # DEBUGGING
-            # if hasattr(self, '_gcs_planner') and self._gcs_planner.original_traj is not None:
-            #     planned_slider = self._gcs_planner.original_traj.get_slider_planar_pose(time_since_traj_start)
-            #     planned_pusher = self._gcs_planner.original_traj.get_pusher_planar_pose(time_since_traj_start)
-            #     planned_pusher_vel = self._gcs_planner.original_traj.get_pusher_velocity(time_since_traj_start)
-            #     slider_pos_err = current_slider_pose.vector() - planned_slider.vector()
-            #     pusher_pos_err = current_pusher_pose.vector()[:2] - planned_pusher.vector()[:2]
-            #     has_vel = current_pusher_vel is not None and planned_pusher_vel is not None
-            #     pusher_vel_err = current_pusher_vel - planned_pusher_vel if has_vel else None
-            #     s_norm = np.linalg.norm(slider_pos_err)
-            #     p_norm = np.linalg.norm(pusher_pos_err)
-            #     print(f"    Slider pose err (x,y,θ): {slider_pos_err}  (norm: {s_norm:.4f})")
-            #     print(f"    Pusher pose err  (x,y):  {pusher_pos_err}  (norm: {p_norm:.4f})")
-            #     if pusher_vel_err is not None:
-            #         v_norm = np.linalg.norm(pusher_vel_err)
-            #         print(f"    Pusher vel err (vx,vy):  {pusher_vel_err}  (norm: {v_norm:.4f})")
 
             success = self.check_success(current_slider_pose, current_pusher_pose)
             if success:
@@ -224,7 +202,7 @@ class GcsPlannerController(LeafSystem):
             start = time.time()
             if self._detected_contact:
                 print("    ******************************* CONTACT DETECTED *******************************")
-            if _time >= 9999.4:
+            if trial_step >= 3199:
                 new_traj, traj_cost = self._gcs_planner.plan(
                     t=time_since_traj_start,
                     current_slider_pose=current_slider_pose,
@@ -232,8 +210,9 @@ class GcsPlannerController(LeafSystem):
                     current_pusher_velocity=current_pusher_vel,
                     is_in_contact=self._detected_contact,
                     save_video=True,
-                    save_unrounded_video=True,
-                    output_folder="temp_videos_seed_double_plan",
+                    # save_unrounded_video=True,
+                    save_unrounded_video=False,
+                    output_folder="temp_videos_3_27_26",
                     output_name=f"traj_{trial_step}",
                     # rounded=not self._detected_contact,
                     rounded=False,
@@ -260,7 +239,7 @@ class GcsPlannerController(LeafSystem):
                 self._consecutive_failures += 1
                 _ = f"cost={traj_cost:.2e}" if traj_cost is not None else "no solution"
                 print(f"    ⚠️ Solver failure ({_}), consecutive={self._consecutive_failures}")
-                assert self._consecutive_failures < 3, "GCS Planner failed 3 times in a row. Aborting."
+                assert self._consecutive_failures < 4, "GCS Planner failed 4 times in a row. Aborting."
             else:
                 self._consecutive_failures = 0
                 self._last_plan_time = _time
@@ -271,6 +250,10 @@ class GcsPlannerController(LeafSystem):
                 print(f"    pusher_penetration_offset: {self._pusher_penetration_offset}")
 
         # Output Action from trajectory prediction
+        if self._last_plan_time is None or self.traj is None:
+            # No valid plan yet (e.g. first plan failed); hold current action (pusher_reset_position)
+            output.set_value(self._current_action)
+            return
         time_in_traj_to_retrieve_action = _time - self._last_plan_time + EXECUTION_LATENCY
         self._current_action = (
             self.traj.get_pusher_planar_pose(time_in_traj_to_retrieve_action).vector()[:2]
@@ -308,6 +291,9 @@ class GcsPlannerController(LeafSystem):
         # Reset state tracking
         self._traj_start_time = None
         self._last_plan_trial_step = -1
+        self._last_plan_time = None  # Force re-initialization on first plan of new trial
+        self.traj = None  # Discard stale trajectory from previous trial
+        self._pusher_penetration_offset = np.array([0.0, 0.0])
         self._detected_contact = False
         self._consecutive_failures = 0
 
@@ -339,10 +325,9 @@ class GcsPlannerController(LeafSystem):
                 double_plan=True,
                 plan=False,
                 output_folder="trajectories_mpc",
-                output_name=f"arbitrary_small_t_pusher_trajectory_ORIGINAL_{new_slider_start_pose.x:.2f}_"
-                f"{new_slider_start_pose.y:.2f}_{new_slider_start_pose.theta:.2f}",
+                output_name=f"arbitrary_small_t_pusher_trajectory_ORIGINAL_{new_slider_start_pose.x:.3f}_"
+                f"{new_slider_start_pose.y:.3f}_{new_slider_start_pose.theta:.3f}",
                 save_video=self._sim_config.save_gcs_videos,
-                # interpolate_video=self._sim_config.save_gcs_videos,
                 interpolate_video=False,
             )
             self._gcs_planner.load_original_path(CACHE_PATH)
@@ -356,10 +341,9 @@ class GcsPlannerController(LeafSystem):
                 double_plan=True,
                 plan=True,
                 output_folder="trajectories_mpc",
-                output_name=f"arbitrary_small_t_pusher_trajectory_ORIGINAL_{new_slider_start_pose.x:.2f}_"
-                f"{new_slider_start_pose.y:.2f}_{new_slider_start_pose.theta:.2f}",
+                output_name=f"arbitrary_small_t_pusher_trajectory_ORIGINAL_{new_slider_start_pose.x:.3f}_"
+                f"{new_slider_start_pose.y:.3f}_{new_slider_start_pose.theta:.3f}",
                 save_video=self._sim_config.save_gcs_videos,
-                # interpolate_video=self._sim_config.save_gcs_videos,
                 interpolate_video=False,
             )
             self._gcs_planner.original_path.save(CACHE_PATH)
@@ -423,6 +407,10 @@ def plot_gcs_controller_logs(action_log, pusher_log, root_context):
     pusher_times = pusher_log_data.sample_times()
     pusher_values = pusher_log_data.data()
 
+    if len(action_times) == 0 or len(pusher_times) == 0:
+        print("Warning: No data to plot.")
+        return
+
     fig, ax = plt.subplots(figsize=(10, 8))
     plt.subplots_adjust(bottom=0.25)
 
@@ -474,4 +462,5 @@ def plot_gcs_controller_logs(action_log, pusher_log, root_context):
 
     time_slider.on_changed(update)
     update(t_min)
-    plt.show()
+    plt.show(block=False)
+    plt.pause(0.001)

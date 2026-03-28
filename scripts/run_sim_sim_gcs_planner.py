@@ -49,9 +49,8 @@ from planning_through_contact.visualize.analysis import (
 )
 
 TRIALS_TO_SKIP = []
-# TRIALS_TO_SKIP = [0, 1]
 
-ONLY_1_TRIAL = False
+ONLY_1_TRIAL = False  # If set to True, also plots the GCS Planner logs for the 1st trial
 
 
 configure_logging()
@@ -65,7 +64,6 @@ class SimSimGcsPlanner:
         # load sim_config
         self.cfg = cfg
         self.output_dir = output_dir
-
         # Hold system-wide lock during writing and reading of small_table_hydroelastic.urdf and arbitrary_shape.sdf.
         # After this locked code block is finished, other processes are free to modify these files without affecting
         # this process.
@@ -107,6 +105,7 @@ class SimSimGcsPlanner:
             shutil.rmtree(image_writer_dir)
 
         # Set up environment
+        print(f"Using arbitrary shape pickle path: {cfg.arbitrary_shape_pickle_path}")
         self.environment = SimulatedRealTableEnvironment(
             desired_position_source=position_source,
             robot_system=position_controller,
@@ -202,6 +201,15 @@ class SimSimGcsPlanner:
                             print("Returning to start...")
                             self.environment._robot_system._planner.reset()
 
+                            # IiwaPlanner.Update() has a 0.1s period; reset_planner is not
+                            # processed until the next Update() boundary. Advance until run_flag
+                            # drops to 0 (confirming the PUSHING→GO_PUSH_START transition
+                            # occurred) before waiting for it to rise to 1 again below.
+                            while self.run_flag_port.Eval(self.robot_system_context)[0]:
+                                current_time += time_step
+                                current_time = round(current_time / time_step) * time_step
+                                self.environment._simulator.AdvanceTo(current_time)
+
                         # Prevent premature planning while IiwaPlanner works toward pushing mode
                         self.environment._desired_position_source._gcs_planner._ready = False
                         self.environment.set_slider_planar_pose(slider_pose)
@@ -280,14 +288,7 @@ class SimSimGcsPlanner:
                         summary["trial_times"].append(self.multi_run_config.max_attempt_duration)
 
                 except Exception as e:
-                    # Re-initialize the simulator to resync its internal time tracking. If an
-                    # exception escapes AdvanceTo() (e.g. AssertionError from the GCS planner),
-                    # Drake's last_known_simtime_ is left inconsistent, causing every subsequent
-                    # AdvanceTo() call to fail with "Simulation time has changed".
-                    self.environment._simulator.Initialize()
-
-                    # Check if we succeeded despite the error (e.g. planner failed because we are at goal)
-                    # This often happens with GCS planner when the start and goal are very close
+                    # Check if we succeeded despite the error
                     if self.evaluator.check_success():
                         success_count += 1
                         trial_success = True
@@ -303,8 +304,22 @@ class SimSimGcsPlanner:
 
                         summary["trial_result"].append("error")
                         summary["trial_times"].append(current_time - self.traj_start_time)
-                    # Continue to next trial
-                    pass
+
+                    # Re-initialize the simulator to resync its internal time tracking. If an
+                    # exception escapes AdvanceTo() (e.g. AssertionError from the GCS planner),
+                    # Drake's last_known_simtime_ is left inconsistent, causing every subsequent
+                    # AdvanceTo() call to fail with "Simulation time has changed".
+                    self.environment._simulator.Initialize()
+
+                finally:
+                    if ONLY_1_TRIAL:
+                        action_log, pusher_log = self.environment.get_gcs_planner_logs()
+                        if action_log is not None and pusher_log is not None:
+                            from planning_through_contact.simulation.controllers.gcs_planner_controller import (
+                                plot_gcs_controller_logs,
+                            )
+
+                            plot_gcs_controller_logs(action_log, pusher_log, self.environment.context)
 
                 # Logging
                 final_error = self.evaluator.get_final_error()
@@ -333,7 +348,8 @@ class SimSimGcsPlanner:
 
             summary["total_eval_sim_time"] = current_time
             summary["total_eval_wall_time"] = time.time() - start_time
-            generate_analysis_summary(self.output_dir, summary, self.multi_run_config, self.cfg)
+            if len(summary["trial_times"]) > 0:
+                generate_analysis_summary(self.output_dir, summary, self.multi_run_config, self.cfg)
 
             if self.collect_data:
                 self._save_to_zarr()
