@@ -78,6 +78,7 @@ class GcsPlannerController(LeafSystem):
         self._pusher_penetration_offset = np.array([0.0, 0.0])
         self._time = 0.0
         self._last_plan_trial_step = -1  # Step index within current trial
+        self._last_plan_time = None  # Sim time of the last accepted full replan (None until first plan)
         self._detected_contact = False  # Flag to indicate if contact has been detected in the current cycle
         self._ready = False  # Set True by reset(); prevents stale planning during return-to-start
         self._consecutive_failures = 0  # Count of consecutive solver failures (None result or cost > 5e4)
@@ -249,6 +250,10 @@ class GcsPlannerController(LeafSystem):
                 print(f"    pusher_penetration_offset: {self._pusher_penetration_offset}")
 
         # Output Action from trajectory prediction
+        if self._last_plan_time is None or self.traj is None:
+            # No valid plan yet (e.g. first plan failed); hold current action (pusher_reset_position)
+            output.set_value(self._current_action)
+            return
         time_in_traj_to_retrieve_action = _time - self._last_plan_time + EXECUTION_LATENCY
         self._current_action = (
             self.traj.get_pusher_planar_pose(time_in_traj_to_retrieve_action).vector()[:2]
@@ -286,6 +291,9 @@ class GcsPlannerController(LeafSystem):
         # Reset state tracking
         self._traj_start_time = None
         self._last_plan_trial_step = -1
+        self._last_plan_time = None  # Force re-initialization on first plan of new trial
+        self.traj = None  # Discard stale trajectory from previous trial
+        self._pusher_penetration_offset = np.array([0.0, 0.0])
         self._detected_contact = False
         self._consecutive_failures = 0
 
