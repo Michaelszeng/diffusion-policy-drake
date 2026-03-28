@@ -193,27 +193,6 @@ class GcsPlannerController(LeafSystem):
         if trial_step > self._last_plan_trial_step:
             self._last_plan_trial_step = trial_step
             print(f"Sim time: {_time:.4f}s | Trial step: {trial_step}")
-            # print(f"    current_slider_pose: {current_slider_pose}")
-            # print(f"    current_pusher_pose: {current_pusher_pose}")
-            # if current_pusher_vel is not None:
-            #     print(f"    current_pusher_vel: {current_pusher_vel} (norm: {np.linalg.norm(current_pusher_vel)})")
-
-            # # DEBUGGING
-            # if hasattr(self, '_gcs_planner') and self._gcs_planner.original_traj is not None:
-            #     planned_slider = self._gcs_planner.original_traj.get_slider_planar_pose(time_since_traj_start)
-            #     planned_pusher = self._gcs_planner.original_traj.get_pusher_planar_pose(time_since_traj_start)
-            #     planned_pusher_vel = self._gcs_planner.original_traj.get_pusher_velocity(time_since_traj_start)
-            #     slider_pos_err = current_slider_pose.vector() - planned_slider.vector()
-            #     pusher_pos_err = current_pusher_pose.vector()[:2] - planned_pusher.vector()[:2]
-            #     has_vel = current_pusher_vel is not None and planned_pusher_vel is not None
-            #     pusher_vel_err = current_pusher_vel - planned_pusher_vel if has_vel else None
-            #     s_norm = np.linalg.norm(slider_pos_err)
-            #     p_norm = np.linalg.norm(pusher_pos_err)
-            #     print(f"    Slider pose err (x,y,θ): {slider_pos_err}  (norm: {s_norm:.4f})")
-            #     print(f"    Pusher pose err  (x,y):  {pusher_pos_err}  (norm: {p_norm:.4f})")
-            #     if pusher_vel_err is not None:
-            #         v_norm = np.linalg.norm(pusher_vel_err)
-            #         print(f"    Pusher vel err (vx,vy):  {pusher_vel_err}  (norm: {v_norm:.4f})")
 
             success = self.check_success(current_slider_pose, current_pusher_pose)
             if success:
