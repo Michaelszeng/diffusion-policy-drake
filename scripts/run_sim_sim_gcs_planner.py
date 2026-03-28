@@ -201,6 +201,15 @@ class SimSimGcsPlanner:
                             print("Returning to start...")
                             self.environment._robot_system._planner.reset()
 
+                            # IiwaPlanner.Update() has a 0.1s period; reset_planner is not
+                            # processed until the next Update() boundary. Advance until run_flag
+                            # drops to 0 (confirming the PUSHING→GO_PUSH_START transition
+                            # occurred) before waiting for it to rise to 1 again below.
+                            while self.run_flag_port.Eval(self.robot_system_context)[0]:
+                                current_time += time_step
+                                current_time = round(current_time / time_step) * time_step
+                                self.environment._simulator.AdvanceTo(current_time)
+
                         # Prevent premature planning while IiwaPlanner works toward pushing mode
                         self.environment._desired_position_source._gcs_planner._ready = False
                         self.environment.set_slider_planar_pose(slider_pose)
