@@ -235,8 +235,8 @@ class GcsPlannerController(LeafSystem):
                     output_folder="temp_videos_3_27_26",
                     output_name=f"traj_{trial_step}",
                     # rounded=not self._detected_contact,
-                    # rounded=False,
-                    rounded=True,
+                    rounded=False,
+                    # rounded=True,
                     success=success,
                 )
             else:
@@ -247,8 +247,8 @@ class GcsPlannerController(LeafSystem):
                     current_pusher_velocity=current_pusher_vel,
                     is_in_contact=self._detected_contact,
                     # rounded=not self._detected_contact,
-                    # rounded=False,
-                    rounded=True,
+                    rounded=False,
+                    # rounded=True,
                     success=success,
                 )
             self._detected_contact = False  # Reset contact detection flag
@@ -259,7 +259,7 @@ class GcsPlannerController(LeafSystem):
                 self._consecutive_failures += 1
                 _ = f"cost={traj_cost:.2e}" if traj_cost is not None else "no solution"
                 print(f"    ⚠️ Solver failure ({_}), consecutive={self._consecutive_failures}")
-                assert self._consecutive_failures < 3, "GCS Planner failed 3 times in a row. Aborting."
+                assert self._consecutive_failures < 4, "GCS Planner failed 4 times in a row. Aborting."
             else:
                 self._consecutive_failures = 0
                 self._last_plan_time = _time

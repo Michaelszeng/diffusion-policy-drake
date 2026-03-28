@@ -49,13 +49,8 @@ from planning_through_contact.visualize.analysis import (
 )
 
 TRIALS_TO_SKIP = []
-TRIALS_TO_SKIP = [
-    0,
-    1,
-    2,
-]
 
-ONLY_1_TRIAL = False
+ONLY_1_TRIAL = False  # If set to True, also plots the GCS Planner logs for the 1st trial
 
 
 configure_logging()
@@ -63,15 +58,12 @@ logging.getLogger("drake").setLevel(logging.DEBUG)
 
 
 class SimSimGcsPlanner:
-    def __init__(
-        self, cfg: OmegaConf, output_dir: str = None, collect_data: bool = False, debug_action_plots: bool = True
-    ):
+    def __init__(self, cfg: OmegaConf, output_dir: str = None, collect_data: bool = False):
         station_meshcat = StartMeshcat()
 
         # load sim_config
         self.cfg = cfg
         self.output_dir = output_dir
-        self.debug_action_plots = debug_action_plots
         # Hold system-wide lock during writing and reading of small_table_hydroelastic.urdf and arbitrary_shape.sdf.
         # After this locked code block is finished, other processes are free to modify these files without affecting
         # this process.
@@ -311,7 +303,7 @@ class SimSimGcsPlanner:
                     self.environment._simulator.Initialize()
 
                 finally:
-                    if self.debug_action_plots:
+                    if ONLY_1_TRIAL:
                         action_log, pusher_log = self.environment.get_gcs_planner_logs()
                         if action_log is not None and pusher_log is not None:
                             from planning_through_contact.simulation.controllers.gcs_planner_controller import (
