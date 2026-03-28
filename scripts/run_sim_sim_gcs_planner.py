@@ -48,7 +48,7 @@ from planning_through_contact.visualize.analysis import (
     PlanarPushingLog,
 )
 
-# TRIALS_TO_SKIP = []
+TRIALS_TO_SKIP = []
 TRIALS_TO_SKIP = [
     0,
     1,
@@ -64,7 +64,7 @@ logging.getLogger("drake").setLevel(logging.DEBUG)
 
 class SimSimGcsPlanner:
     def __init__(
-        self, cfg: OmegaConf, output_dir: str = None, collect_data: bool = False, debug_action_plots: bool = False
+        self, cfg: OmegaConf, output_dir: str = None, collect_data: bool = False, debug_action_plots: bool = True
     ):
         station_meshcat = StartMeshcat()
 

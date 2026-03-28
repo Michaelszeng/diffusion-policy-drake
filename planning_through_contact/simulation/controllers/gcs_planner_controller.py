@@ -91,8 +91,7 @@ class GcsPlannerController(LeafSystem):
             use_case="drake_iiwa",
         )
         self.planner_config = config
-        solver_params = get_default_solver_params()
-        self.solver_params = solver_params
+        self.solver_params = get_default_solver_params()
         self.traj = None
 
         # Input port for pusher pose
@@ -126,6 +125,7 @@ class GcsPlannerController(LeafSystem):
         self.debug_pusher_pose = self.DeclareVectorOutputPort("debug_pusher_pose", 2, self.DoCalcDebugPusherPose)
 
     def check_success(self, current_slider_pose: PlanarPose, current_pusher_pose: PlanarPose) -> bool:
+        """Just check that slider is within goal tolerance. Used to allow early-exit for GCS planner"""
         cfg = self._sim_config.multi_run_config
         if cfg.success_criteria == "tolerance":
             return check_success_tolerance(
@@ -222,7 +222,7 @@ class GcsPlannerController(LeafSystem):
             start = time.time()
             if self._detected_contact:
                 print("    ******************************* CONTACT DETECTED *******************************")
-            if trial_step >= 3499:
+            if trial_step >= 3199:
                 new_traj, traj_cost = self._gcs_planner.plan(
                     t=time_since_traj_start,
                     current_slider_pose=current_slider_pose,

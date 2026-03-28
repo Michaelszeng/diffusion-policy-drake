@@ -217,6 +217,7 @@ class IiwaHardwareStation(RobotSystemBase):
                 velocity_limit_factor * IIWA7_VELOCITY_LIMITS,
             )
         )
+        ik_params.set_joint_position_limits((robot.GetPositionLowerLimits(), robot.GetPositionUpperLimits()))
         ik_params.set_nominal_joint_position(self._sim_config.default_joint_positions)
         ik_params.set_joint_centering_gain(np.eye(robot.num_positions()))
         self._diff_ik = builder.AddNamedSystem(
