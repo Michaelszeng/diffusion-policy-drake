@@ -47,7 +47,14 @@ mkdir -p logs
 
 # --- WANDB Authentication ---
 export WANDB_USERNAME="michzeng"
-export WANDB_API_KEY="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"
+SECRETS_FILE="$SLURM_SUBMIT_DIR/.secrets"
+if [ -f "$SECRETS_FILE" ]; then
+    source "$SECRETS_FILE"
+    echo "Loaded secrets from $SECRETS_FILE"
+else
+    echo "ERROR: $SECRETS_FILE not found. Create it from .secrets.template before submitting." >&2
+    exit 1
+fi
 echo "WANDB_USERNAME and WANDB_API_KEY set for authentication."
 
 export HYDRA_FULL_ERROR=1
