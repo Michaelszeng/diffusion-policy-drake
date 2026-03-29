@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 np.set_printoptions(precision=4)
 
 EXECUTION_LATENCY = 0.006
-PENETRATION_OFFSET = 0.00025  # To account for the penetration of the pusher into the slider
+PENETRATION_OFFSET = 0.0004  # To account for the penetration of the pusher into the slider
 
 
 class GcsPlannerController(LeafSystem):
