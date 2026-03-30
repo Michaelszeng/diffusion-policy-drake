@@ -322,6 +322,7 @@ class MeshcatRecordingManager:
         self._trials_in_chunk = 0
 
         if self._total_recorded < self._target:
+            self._meshcat.DeleteRecording()
             self._meshcat.StartRecording(frames_per_second=10)
             self._active = True
 
