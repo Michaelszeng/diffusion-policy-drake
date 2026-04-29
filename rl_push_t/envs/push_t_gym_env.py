@@ -79,7 +79,6 @@ class PushTDrakeEnv(Env):
         # Episode tracking
         self._current_sim_time = 0.0
         self._step_count = 0
-        self._current_position = np.array([self._pusher_start_pose.x, self._pusher_start_pose.y], dtype=np.float64)
 
     def _setup_simulation(self, cfg_path: str, meshcat=None):
         """Build the Drake diagram. Called once in __init__."""
@@ -221,9 +220,7 @@ class PushTDrakeEnv(Env):
             rng=rng,
         )
 
-        # Reset pusher position tracker
-        self._current_position = np.array([self._pusher_start_pose.x, self._pusher_start_pose.y], dtype=np.float64)
-        self._rl_source.set_action(self._current_position)
+        self._rl_source.set_action(np.array([self._pusher_start_pose.x, self._pusher_start_pose.y]))
 
         # Reset sim time and step count
         context = self._simulator.get_mutable_context()
@@ -254,17 +251,21 @@ class PushTDrakeEnv(Env):
         return obs, {}
 
     def step(self, action: np.ndarray):
+        # Use actual EE position as integration base to prevent wind-up when DiffIK is stuck.
+        # If the robot didn't move (IK failed), the next delta is still relative to where it actually is.
+        pusher_tf = self._plant.EvalBodyPoseInWorld(self._mbp_context, self._pusher_body)
+        actual_xy = pusher_tf.translation()[:2].copy()
+
         # Integrate delta action into absolute position command, clipped to a
         # circle of radius CLIP_RADIUS around the goal pose to keep the robot within IK reach
-        candidate = self._current_position + action * self._rl_cfg.get("action_scale", 0.01)
+        candidate = actual_xy + action * self._rl_cfg.get("action_scale", 0.05)
         center = np.array([self._slider_goal_pose.x, self._slider_goal_pose.y])
         displacement = candidate - center
         dist = np.linalg.norm(displacement)
         CLIP_RADIUS = 0.2
         if dist > CLIP_RADIUS:
             candidate = center + displacement * (CLIP_RADIUS / dist)
-        self._current_position = candidate
-        self._rl_source.set_action(self._current_position)
+        self._rl_source.set_action(candidate)
 
         # Advance Drake simulation by one control step
         self._current_sim_time += self._rl_cfg.get("control_dt", 0.1)
