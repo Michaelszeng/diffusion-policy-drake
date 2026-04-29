@@ -88,13 +88,14 @@ def parse_args():
     parser.add_argument("--exp_name", type=str, default=None)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--cuda", action="store_true", default=True)
-    parser.add_argument("--wandb_project", type=str, default="drake-push-t")
+    parser.add_argument("--wandb_project", type=str, default="drake-rl-push-t")
     parser.add_argument("--capture_video", action="store_true")
     parser.add_argument("--save_model", action="store_true", default=True)
     parser.add_argument("--evaluate", action="store_true")
     parser.add_argument("--checkpoint", type=str, default=None)
     parser.add_argument(
-        "--resume", action="store_true",
+        "--resume",
+        action="store_true",
         help="Auto-resume from latest.ckpt in the run directory if it exists",
     )
 
@@ -285,7 +286,9 @@ def main():
             start_iteration = ckpt["iteration"]
         if "global_step" in ckpt:
             start_global_step = ckpt["global_step"]
-        print(f"Loaded checkpoint from {args.checkpoint} (iteration={start_iteration}, global_step={start_global_step})")
+        print(
+            f"Loaded checkpoint from {args.checkpoint} (iteration={start_iteration}, global_step={start_global_step})"
+        )
 
     if args.evaluate:
         sr, ov = evaluate(
@@ -486,14 +489,18 @@ def main():
         if args.save_model and iteration % 100 == 0:
             model_path = os.path.join(log_dir, f"model_{iteration}.pt")
             _save_checkpoint(model_path, agent, optimizer, obs_dim, act_dim, args, iteration, global_step, wandb_run_id)
-            _save_checkpoint(latest_ckpt_path, agent, optimizer, obs_dim, act_dim, args, iteration, global_step, wandb_run_id)
+            _save_checkpoint(
+                latest_ckpt_path, agent, optimizer, obs_dim, act_dim, args, iteration, global_step, wandb_run_id
+            )
             print(f"  Saved checkpoint: {model_path} + latest.ckpt")
 
     # Final save
     if args.save_model:
         model_path = os.path.join(log_dir, "model.pt")
         _save_checkpoint(model_path, agent, optimizer, obs_dim, act_dim, args, iteration, global_step, wandb_run_id)
-        _save_checkpoint(latest_ckpt_path, agent, optimizer, obs_dim, act_dim, args, iteration, global_step, wandb_run_id)
+        _save_checkpoint(
+            latest_ckpt_path, agent, optimizer, obs_dim, act_dim, args, iteration, global_step, wandb_run_id
+        )
         print(f"Saved final model to {model_path} + latest.ckpt")
 
     envs.close()

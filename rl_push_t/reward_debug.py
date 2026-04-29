@@ -18,7 +18,6 @@ Usage:
 import argparse
 import time
 
-import numpy as np
 from pydrake.all import Meshcat
 
 from rl_push_t.envs.push_t_gym_env import PushTDrakeEnv
@@ -37,24 +36,26 @@ def main():
     goal_x = env._slider_goal_pose.x
     goal_y = env._slider_goal_pose.y
     control_dt = env._rl_cfg.get("control_dt", 0.1)
-    max_steps = env._rl_cfg.get("max_episode_steps", 200)
 
     # Sliders expressed relative to goal (matches observation space)
     RANGE = 0.25
     meshcat.AddSlider(
         "pusher_rel_x",
-        min=-RANGE, max=RANGE, step=0.005,
+        min=-RANGE,
+        max=RANGE,
+        step=0.005,
         value=env._pusher_start_pose.x - goal_x,
     )
     meshcat.AddSlider(
         "pusher_rel_y",
-        min=-RANGE, max=RANGE, step=0.005,
+        min=-RANGE,
+        max=RANGE,
+        step=0.005,
         value=env._pusher_start_pose.y - goal_y,
     )
     meshcat.AddButton("Reset Episode")
 
     env.reset()
-    meshcat.StartRecording()
 
     print("Sliders control the pusher position (relative to goal).")
     print("Click 'Reset Episode' in Meshcat to reset. Ctrl+C to exit.\n")
@@ -69,8 +70,6 @@ def main():
             if clicks > reset_clicks:
                 reset_clicks = clicks
                 env.reset()
-                meshcat.StopRecording()
-                meshcat.StartRecording()
 
             # ── Set pusher position from sliders ──────────────────────────
             rel_x = meshcat.GetSliderValue("pusher_rel_x")
@@ -87,11 +86,7 @@ def main():
             obs = env._get_obs()
             env._compute_reward(obs, debug=True)
 
-            # ── Auto-reset at episode end ──────────────────────────────────
-            if env._step_count >= max_steps:
-                env.reset()
-                meshcat.StopRecording()
-                meshcat.StartRecording()
+            time.sleep(control_dt)
 
     except KeyboardInterrupt:
         print("\nExiting.")
