@@ -52,6 +52,7 @@ class MultiRunConfig:
         convex_hull_scale: float = 1.0,
         slider_physical_properties: PhysicalProperties = None,
         num_trials_to_record=0,
+        trials_per_recording_file: int = 20,
     ):
         # Define workspace for initial slider pose
         workspace = PlanarPushingWorkspace(
@@ -75,6 +76,7 @@ class MultiRunConfig:
         self.dataset_path = dataset_path
         self.convex_hull_scale = convex_hull_scale
         self.num_trials_to_record = num_trials_to_record
+        self.trials_per_recording_file = trials_per_recording_file
 
     def __str__(self):
         slider_pose_str = f"initial_slider_poses: {self.initial_slider_poses}"
@@ -98,6 +100,7 @@ class MultiRunConfig:
             and self.success_criteria == other.success_criteria
             and self.dataset_path == other.dataset_path
             and self.num_trials_to_record == other.num_trials_to_record
+            and self.trials_per_recording_file == other.trials_per_recording_file
             and self.convex_hull_scale == other.convex_hull_scale
         )
 
