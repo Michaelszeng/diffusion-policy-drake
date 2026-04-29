@@ -341,7 +341,7 @@ class SimSimGcsPlanner:
                 self.num_completed_trials += 1
                 print(f"Running Stats: Success={success_count}, Failure={failure_count}, Error={error_count}")
 
-                recorder.on_trial_complete()
+                recorder.on_trial_complete(current_time)
 
         finally:
             recorder.finalize()

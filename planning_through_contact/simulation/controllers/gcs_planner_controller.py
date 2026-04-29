@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 np.set_printoptions(precision=4)
 
 EXECUTION_LATENCY = 0.006
-PENETRATION_OFFSET = 0.0004  # To account for the penetration of the pusher into the slider
+PENETRATION_OFFSET = 0.00025  # To account for the penetration of the pusher into the slider
 
 
 class GcsPlannerController(LeafSystem):
@@ -239,8 +239,8 @@ class GcsPlannerController(LeafSystem):
             if solver_failed:
                 self._consecutive_failures += 1
                 _ = f"cost={traj_cost:.2e}" if traj_cost is not None else "no solution"
-                print(f"    ⚠️ Solver failure ({_}), consecutive={self._consecutive_failures}")
-                assert self._consecutive_failures < 4, "GCS Planner failed 4 times in a row. Aborting."
+                print(f"    ❌ Solver failure ({_}), consecutive={self._consecutive_failures}")
+                assert self._consecutive_failures < 4, "❌❌❌ GCS Planner failed 4 times in a row. Aborting."
             else:
                 self._consecutive_failures = 0
                 self._last_plan_time = _time
@@ -324,6 +324,7 @@ class GcsPlannerController(LeafSystem):
                 self.solver_params,
                 self._freq,
                 double_plan=True,
+                full_replan=True,
                 plan=False,
                 output_folder="trajectories_mpc",
                 output_name=f"arbitrary_small_t_pusher_trajectory_ORIGINAL_{new_slider_start_pose.x:.3f}_"
@@ -340,6 +341,7 @@ class GcsPlannerController(LeafSystem):
                 self.solver_params,
                 self._freq,
                 double_plan=True,
+                full_replan=True,
                 plan=True,
                 output_folder="trajectories_mpc",
                 output_name=f"arbitrary_small_t_pusher_trajectory_ORIGINAL_{new_slider_start_pose.x:.3f}_"

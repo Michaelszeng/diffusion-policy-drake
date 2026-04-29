@@ -285,7 +285,7 @@ class SimSimEval:
                     num_completed_trials += 1
 
                     if recorder is not None:
-                        recorder.on_trial_complete()
+                        recorder.on_trial_complete(t)
 
                 # Finished Eval
                 if num_completed_trials - prev_completed_trials >= self.multi_run_config.num_runs:

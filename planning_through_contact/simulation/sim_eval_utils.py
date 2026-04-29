@@ -291,8 +291,13 @@ class MeshcatRecordingManager:
             self._active = True
             self._trials_in_chunk = 0
 
-    def on_trial_complete(self):
-        """Call after each completed trial. Saves and rotates files as needed."""
+    def on_trial_complete(self, current_sim_time=0.0):
+        """Call after each completed trial. Saves and rotates files as needed.
+
+        Args:
+            current_sim_time: The current simulation time, used to rebase
+                frame numbers when starting the next recording chunk.
+        """
         if not self._active:
             return
 
@@ -300,7 +305,7 @@ class MeshcatRecordingManager:
         self._total_recorded += 1
 
         if self._trials_in_chunk >= TRIALS_PER_RECORDING_FILE or self._total_recorded >= self._target:
-            self._save_chunk()
+            self._save_chunk(current_sim_time)
 
     def finalize(self):
         """Save any remaining recorded trials."""
@@ -314,7 +319,7 @@ class MeshcatRecordingManager:
             self._environment.save_recording(filename, self._output_dir)
         self._active = False
 
-    def _save_chunk(self):
+    def _save_chunk(self, current_sim_time=0.0):
         filename = self._chunk_filename()
         self._environment.save_recording(filename, self._output_dir)
         self._active = False
@@ -324,6 +329,7 @@ class MeshcatRecordingManager:
         if self._total_recorded < self._target:
             self._meshcat.DeleteRecording()
             self._meshcat.StartRecording(frames_per_second=10)
+            self._meshcat.get_mutable_recording().set_start_time(current_sim_time)
             self._active = True
 
     def _chunk_filename(self):

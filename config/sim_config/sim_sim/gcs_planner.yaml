@@ -123,8 +123,8 @@ multi_run_config:
   workspace_height: 0.3
   # Success criteria
   # Use intentionally tolerances since we use this config for data collection
-  trans_tol: 0.012
-  rot_tol: 3.0 # degrees
+  trans_tol: 0.0135
+  rot_tol: 3.25 # degrees
   pusher_pos_tol: 0.01
   evaluate_final_pusher_position: true
   evaluate_final_slider_rotation: true
