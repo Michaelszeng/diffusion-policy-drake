@@ -167,14 +167,17 @@ class PushTDrakeEnv(Env):
         pusher_rel_x, pusher_rel_y = obs[0], obs[1]
         slider_rel_x, slider_rel_y = obs[2], obs[3]
 
+        # Rotational alignment: peaks at 1/2 when slider matches goal orientation, 0 when 180° off
         # obs[4] = cos(slider_theta - goal_theta), which is exactly what rot_rew needs
         rot_component = ((obs[4] + 1.0) / 2.0) ** 2 / 2.0
 
+        # Translational alignment: peaks at 1/2 when slider is at goal position, decays with distance
         dist_T = np.hypot(slider_rel_x, slider_rel_y)
         trans_component = ((1.0 - np.tanh(5.0 * dist_T)) ** 2) / 2.0
 
+        # End-effector proximity: small bonus encouraging the pusher to stay close to the slider
         dist_push = np.hypot(pusher_rel_x - slider_rel_x, pusher_rel_y - slider_rel_y)
-        ee_component = np.sqrt(max(1.0 - np.tanh(5.0 * dist_push), 0.0)) / 10.0
+        ee_component = max(1.0 - np.tanh(5.0 * dist_push), 0.0) / 1.0
 
         reward = rot_component + trans_component + ee_component
 
@@ -192,7 +195,7 @@ class PushTDrakeEnv(Env):
         )
         success = overlap >= self._rl_cfg.get("success_overlap_thresh", 0.9)
         if success:
-            reward = 3.0
+            reward = 10.0
 
         if debug:
             print(

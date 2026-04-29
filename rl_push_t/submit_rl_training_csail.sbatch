@@ -1,14 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=rl_push_t_training
 #SBATCH --account=locomotion
-#SBATCH --partition=locomotion-h200
-#SBATCH --qos=locomotion-main
+#SBATCH --partition=vision-shared-rtx2080ti
+#SBATCH --qos=shared-if-available
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=1
-#SBATCH --cpus-per-task=92
+#SBATCH --cpus-per-task=80
 #SBATCH --mem=128G
-#SBATCH --time=120:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --requeue
@@ -18,11 +18,11 @@
 # ============================================================================
 # Training hyperparameters
 # ============================================================================
-N_ENVS=84
+N_ENVS=76
 TOTAL_TIMESTEPS=500000000
-LR=3e-4
-NUM_STEPS=64
-NUM_MINIBATCHES=8
+LR=1e-4
+NUM_STEPS=200  # Full episode length for each step
+NUM_MINIBATCHES=25
 UPDATE_EPOCHS=4
 EVAL_FREQ=100
 NUM_EVAL_EPISODES=10
