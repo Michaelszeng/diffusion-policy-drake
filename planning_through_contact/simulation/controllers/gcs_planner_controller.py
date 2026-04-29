@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 np.set_printoptions(precision=4)
 
 EXECUTION_LATENCY = 0.006
+PENETRATION_OFFSET = 0.0004  # To account for the penetration of the pusher into the slider
 
 
 class GcsPlannerController(LeafSystem):
@@ -88,7 +89,7 @@ class GcsPlannerController(LeafSystem):
             slider_type="arbitrary",
             arbitrary_shape_pickle_path=self._sim_config.arbitrary_shape_pickle_path,
             slider_physical_properties=self._sim_config.slider_physical_properties,
-            pusher_radius=self._sim_config.pusher_radius,
+            pusher_radius=self._sim_config.pusher_radius - PENETRATION_OFFSET,
             use_case="drake_iiwa",
         )
         self.planner_config = config
@@ -202,7 +203,7 @@ class GcsPlannerController(LeafSystem):
             start = time.time()
             if self._detected_contact:
                 print("    ******************************* CONTACT DETECTED *******************************")
-            if trial_step >= 3199:
+            if trial_step >= 1899:
                 new_traj, traj_cost = self._gcs_planner.plan(
                     t=time_since_traj_start,
                     current_slider_pose=current_slider_pose,
@@ -212,7 +213,7 @@ class GcsPlannerController(LeafSystem):
                     save_video=True,
                     # save_unrounded_video=True,
                     save_unrounded_video=False,
-                    output_folder="temp_videos_3_27_26",
+                    output_folder="temp_videos_3_28_26",
                     output_name=f"traj_{trial_step}",
                     # rounded=not self._detected_contact,
                     rounded=False,

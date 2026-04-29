@@ -25,7 +25,7 @@ omegaconf = "^2.3.0"
 zarr = "2.12.0"
 
 # Diffusion Policy dependencies
-diffusion-policy = {path = "/data/locomotion/michzeng/diffusion-policy-experiments", develop = true}
+diffusion-policy = {path = "/home/michzeng/diffusion-policy", develop = true}
 dill = "0.3.5.1"
 torch = "^2.2.0"
 diffusers = "0.11.1"
@@ -40,7 +40,7 @@ wandb = "0.13.3"
 huggingface-hub = ">=0.10.0,<0.25.3"
 
 # gcs-planar-pushing dependencies
-gcs-planar-pushing = {path = "/data/locomotion/michzeng/gcs-planar-pushing", develop = true}
+gcs-planar-pushing = {path = "/home/michzeng/gcs-planar-pushing", develop = true}
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.25.1"
