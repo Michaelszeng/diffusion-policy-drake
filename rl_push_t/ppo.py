@@ -257,9 +257,25 @@ def main():
     latest_ckpt_path = os.path.join(log_dir, "latest.ckpt")
     resume_ckpt = None
     if args.resume and os.path.isfile(latest_ckpt_path):
-        print(f"Found existing checkpoint at {latest_ckpt_path}, resuming...")
-        args.checkpoint = latest_ckpt_path
-        resume_ckpt = torch.load(latest_ckpt_path, map_location="cpu")
+        try:
+            print(f"Found existing checkpoint at {latest_ckpt_path}, resuming...")
+            args.checkpoint = latest_ckpt_path
+            resume_ckpt = torch.load(latest_ckpt_path, map_location="cpu")
+        except Exception as e:
+            print(f"WARNING: latest.ckpt is corrupted ({e}). Searching for most recent numbered checkpoint...")
+            import glob
+            numbered = sorted(glob.glob(os.path.join(log_dir, "model_*.pt")), key=os.path.getmtime, reverse=True)
+            resume_ckpt = None
+            for fallback in numbered:
+                try:
+                    resume_ckpt = torch.load(fallback, map_location="cpu")
+                    args.checkpoint = fallback
+                    print(f"Falling back to {fallback}")
+                    break
+                except Exception:
+                    continue
+            if resume_ckpt is None:
+                print("No valid checkpoint found; starting from scratch.")
     elif args.resume:
         print("--resume passed but no latest.ckpt found; starting from scratch.")
 
