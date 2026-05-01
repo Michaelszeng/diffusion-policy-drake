@@ -24,9 +24,11 @@ LR=1e-4
 NUM_STEPS=200  # Full episode length for each step
 NUM_MINIBATCHES=25
 UPDATE_EPOCHS=4
-EVAL_FREQ=100
+EVAL_FREQ=100  # Every EVAL_FREQ training iterations
 NUM_EVAL_EPISODES=10
 EXP_NAME="push_t_ppo"
+LOG_DIR="rl_push_t/runs"
+RESUME_RUN="push_t_ppo_4"  # Set to e.g. "push_t_ppo_X" to resume from that exact run; leave empty for auto
 # ============================================================================
 
 DATE=`date +"%Y.%m.%d"`
@@ -67,10 +69,18 @@ echo "NUM_STEPS:        $NUM_STEPS"
 echo "NUM_MINIBATCHES:  $NUM_MINIBATCHES"
 echo "UPDATE_EPOCHS:    $UPDATE_EPOCHS"
 echo "EXP_NAME:         $EXP_NAME"
+echo "LOG_DIR:          $LOG_DIR"
+echo "RESUME_RUN:       ${RESUME_RUN:-<auto>}"
 echo "=========================================="
+
+# Raise file descriptor limit to prevent FD exhaustion from parallel Drake envs
+ulimit -n 65536
 
 python rl_push_t/ppo.py \
     --exp_name=$EXP_NAME \
+    --log_dir=$LOG_DIR \
+    --resume \
+    ${RESUME_RUN:+--resume_run=$RESUME_RUN} \
     --n_envs=$N_ENVS \
     --total_timesteps=$TOTAL_TIMESTEPS \
     --lr=$LR \

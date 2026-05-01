@@ -102,6 +102,10 @@ class PushTDrakeEnv(Env):
             station_meshcat=meshcat,
         )
 
+        # Visualize the target slider pose in Meshcat when available
+        if meshcat is not None:
+            self._environment.visualize_desired_slider_pose()
+
         # Cache frequently used references
         self._plant = self._environment._plant
         self._mbp_context = self._environment.mbp_context
@@ -225,9 +229,12 @@ class PushTDrakeEnv(Env):
 
         self._rl_source.set_action(np.array([self._pusher_start_pose.x, self._pusher_start_pose.y]))
 
-        # Reset sim time and step count
+        # time_offset lets callers (e.g. multi-episode eval recording) keep Drake's
+        # sim clock monotonically increasing so Meshcat frames don't overwrite each other.
+        time_offset = float((options or {}).get("time_offset", 0.0))
+
         context = self._simulator.get_mutable_context()
-        context.SetTime(0.0)
+        context.SetTime(time_offset)
 
         # Set initial robot + slider positions BEFORE Initialize so that:
         # (a) IiwaPlanner.Initialize reads q0 = default_joint_positions
@@ -246,8 +253,8 @@ class PushTDrakeEnv(Env):
         self._environment._robot_system._planner.force_pushing_mode(self._simulator.get_mutable_context())
 
         # Advance a single timestep so Drake initializes all state properly
-        self._simulator.AdvanceTo(self._sim_config.time_step)
-        self._current_sim_time = self._sim_config.time_step
+        self._simulator.AdvanceTo(time_offset + self._sim_config.time_step)
+        self._current_sim_time = time_offset + self._sim_config.time_step
         self._step_count = 0
 
         obs = self._get_obs()
