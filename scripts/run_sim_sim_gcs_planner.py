@@ -172,6 +172,7 @@ class SimSimGcsPlanner:
             total_runs=num_runs,
             output_dir=self.output_dir,
             file_prefix="gcs_planner",
+            trials_per_recording_file=self.multi_run_config.trials_per_recording_file,
         )
         recorder.start()
 

@@ -253,22 +253,29 @@ class SimEvaluator:
         return {"pusher_error": pusher_error[:2], "slider_error": slider_error}
 
 
-TRIALS_PER_RECORDING_FILE = 20
-
-
 class MeshcatRecordingManager:
     """
     Manages meshcat recording lifecycle: starting, splitting into files of
-    at most TRIALS_PER_RECORDING_FILE trials each, and saving.
+    at most trials_per_recording_file trials each, and saving.
 
     Accepts num_trials_to_record as an int or the string "all".
     """
 
-    def __init__(self, meshcat, environment, num_trials_to_record, total_runs, output_dir, file_prefix="recording"):
+    def __init__(
+        self,
+        meshcat,
+        environment,
+        num_trials_to_record,
+        total_runs,
+        output_dir,
+        file_prefix="recording",
+        trials_per_recording_file=20,
+    ):
         self._meshcat = meshcat
         self._environment = environment
         self._output_dir = output_dir
         self._file_prefix = file_prefix
+        self._trials_per_recording_file = trials_per_recording_file
 
         if isinstance(num_trials_to_record, str) and num_trials_to_record.lower() == "all":
             self._target = total_runs
@@ -288,6 +295,10 @@ class MeshcatRecordingManager:
         """Start recording if there are trials to record."""
         if self._target > 0:
             self._meshcat.StartRecording(frames_per_second=10)
+            # Force re-publish of all Drake geometry so their set_object calls are captured
+            # in the recording. StaticHtml only serializes commands issued after StartRecording,
+            # so geometry set up before this point (iiwa, table, slider) would be absent.
+            self._environment._diagram.ForcedPublish(self._environment.context)
             self._active = True
             self._trials_in_chunk = 0
 
@@ -304,7 +315,7 @@ class MeshcatRecordingManager:
         self._trials_in_chunk += 1
         self._total_recorded += 1
 
-        if self._trials_in_chunk >= TRIALS_PER_RECORDING_FILE or self._total_recorded >= self._target:
+        if self._trials_in_chunk >= self._trials_per_recording_file or self._total_recorded >= self._target:
             self._save_chunk(current_sim_time)
 
     def finalize(self):
@@ -330,11 +341,13 @@ class MeshcatRecordingManager:
             self._meshcat.DeleteRecording()
             self._meshcat.StartRecording(frames_per_second=10)
             self._meshcat.get_mutable_recording().set_start_time(current_sim_time)
+            # Re-publish geometry for each new chunk (same reason as in start()).
+            self._environment._diagram.ForcedPublish(self._environment.context)
             self._active = True
 
     def _chunk_filename(self):
-        if self._target <= TRIALS_PER_RECORDING_FILE:
+        if self._target <= self._trials_per_recording_file:
             return f"{self._file_prefix}.html"
-        start = self._chunk_index * TRIALS_PER_RECORDING_FILE
+        start = self._chunk_index * self._trials_per_recording_file
         end = start + self._trials_in_chunk - 1
         return f"{self._file_prefix}_{start:03d}-{end:03d}.html"
