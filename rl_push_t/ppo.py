@@ -107,6 +107,12 @@ def parse_args():
         metavar="RUN_NAME",
         help="Resume from this exact run directory name, e.g. push_t_ppo_4 (implies --resume)",
     )
+    parser.add_argument(
+        "--reset_optimizer",
+        action="store_true",
+        help="Discard the saved optimizer state when resuming (use after reward/hyperparameter changes; "
+             "do NOT use for plain pre-emption resumes)",
+    )
 
     # Env
     parser.add_argument("--cfg_path", type=str, default="rl_push_t/configs/rl_env.yaml")
@@ -127,7 +133,7 @@ def parse_args():
     parser.add_argument("--norm_adv", action="store_true", default=True)
     parser.add_argument("--clip_coef", type=float, default=0.2)
     parser.add_argument("--clip_vloss", action="store_true")
-    parser.add_argument("--ent_coef", type=float, default=0.005)
+    parser.add_argument("--ent_coef", type=float, default=0.02)
     parser.add_argument("--vf_coef", type=float, default=0.5)
     parser.add_argument("--max_grad_norm", type=float, default=0.5)
     parser.add_argument("--target_kl", type=float, default=0.1)
@@ -321,7 +327,7 @@ def main():
     if args.checkpoint is not None:
         ckpt = torch.load(args.checkpoint, map_location=device)
         agent.load_state_dict(ckpt["agent_state_dict"])
-        if "optimizer_state_dict" in ckpt:
+        if "optimizer_state_dict" in ckpt and not args.reset_optimizer:
             optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         if "iteration" in ckpt:
             start_iteration = ckpt["iteration"]
@@ -329,6 +335,7 @@ def main():
             start_global_step = ckpt["global_step"]
         print(
             f"Loaded checkpoint from {args.checkpoint} (iteration={start_iteration}, global_step={start_global_step})"
+            + (" [optimizer state reset]" if args.reset_optimizer else "")
         )
 
     if args.evaluate:
