@@ -1,6 +1,8 @@
-# Diffusion Policy Experiments
+# Planar Pushing with Diffusion Policy in Drake
 
-Michael's personal diffusion policy experiments/implementation/research in the Robot Locomotion Group, based off of [original diffusion policy paper](https://diffusion-policy.cs.columbia.edu/) and work done by Abhinav Agarwal and Adam Wei.
+Experimentation platform for planar pushing tasks in the [Drake](https://drake.mit.edu/) simulator. Based off work done by Abhinav Agarwal and Adam Wei in [[1](https://arxiv.org/abs/2503.22634)].
+
+This repo contains the planar pushing environments. They can be used for things like teleop data collection, Graph-of-Convex-Sets (GCS) expert automated data collection, and diffusion policy evaluation. For diffusion policy evaluation, this repo integrates with the training repo [diffusion-policy-experiments](https://github.com/Michaelszeng/diffusion-policy-experiments).
 
 ## Installation
 
@@ -23,13 +25,13 @@ export PATH="/home/$USER/.local/bin:$PATH"
 ```
 
 3. **Modify `pyproject.toml`**:
-For the project to run the diffusion policy, it must have access to the diffusion policy repo as well as a trained model checkpoint. Clone [my diffusion policy repo](https://github.com/Michaelszeng/diffusion-policy-experiments), follow the instructions to run training for the planar pushing example, then modify this line in `pyproject.toml` to point to wherever you cloned the repo:
+To run evaluation of policies trained using, [diffusion-policy-experiments](https://github.com/Michaelszeng/diffusion-policy-experiments), clone [diffusion-policy-experiments](https://github.com/Michaelszeng/diffusion-policy-experiments), follow the instructions to run training for the planar pushing example, then modify this line in `pyproject.toml` to point to wherever you cloned the repo:
 
 ```
-diffusion-policy = {path = "/home/michzeng/diffusion-policy", develop = true}
+diffusion-policy = {path = "/home/michzeng/diffusion-policy-experiments", develop = true}
 ```
 
-To run the GCS planner (for data generation), the project must have access to my fork of the `planning-through-contact` repository. Clone [my `planning-through-contact` repo](https://github.com/Michaelszeng/planning-through-contact), then modify this line in `pyproject.toml` to point to wherever you cloned the repo:
+To run the GCS planner for automated data generation, the project must have access to my fork of the `planning-through-contact` repository. Clone [my `planning-through-contact` repo](https://github.com/Michaelszeng/planning-through-contact), then modify this line in `pyproject.toml` to point to wherever you cloned the repo:
 
 ```
 gcs-planner = {path = "/home/michzeng/planning-through-contact", develop = true}
@@ -68,57 +70,22 @@ poetry install
 source $(poetry env info --path)/bin/activate
 ```
 
-### Supercloud Installation:
-```bash
-module load anaconda/Python-ML-2025a  # This module contains a lot of the dependencies we need
-# Now, we install the remaining dependencies we need
-pip install drake --no-deps  # TODO: instructions for local drake build?
-pip install manipulation==2025.1.3 --no-deps
-pip install huggingface-hub==0.25.2 --no-deps
-pip install diffusers==0.11.1 --no-deps
-pip install numba==0.60.0
-pip install opencv-python==4.9.0.80 --no-deps
-pip install robomimic==0.3.0 --no-deps
-pip install hydra-core
-pip install wandb
-pip install einops
-pip install zarr
-pip install lxml
-pip install lxml-html-clean
-pip install pydot
-pip install mpld3
-pip install pyvirtualdisplay
+For installation in other environments (i.e. SLURM clusters or MIT/Lincoln Labs' SuperCloud), see `README_SLURM.md` or `README_MIT_SUPERCLOUD.md`.
 
-pip install -e /home/gridsan/mzeng/diffusion-policy-experiments --no-deps
-```
 
-8. Setting up Supercloud Running Scripts
+## Running Teleop Data Collection
 
-`scp` MOSEK license file to SuperCloud.
-
-Modify the path to your license file in `submit_run_sim_sim_eval.sh` and `submit_launch_eval.sh`:
+Use `scripts/run_gamepad_teleop.py` to collect demonstrations by teleoperating the pusher with a Logitech G F310 gamepad connected via Meshcat's browser Gamepad API:
 
 ```bash
-export MOSEKLM_LICENSE_FILE=/home/gridsan/mzeng/mosek.lic
+python scripts/run_gamepad_teleop.py --config-name sim_sim/gamepad_teleop_carbon
 ```
 
-### MIT CSAIL SLURM Cluster Installation:
-
-```bash
-python3 -m venv env --without-pip
-source env/bin/activate
-curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
-python3 /tmp/get-pip.py --no-warn-script-location
-pip install -r requirements.txt
-
-pip install -e .
-pip install -e /data/locomotion/michzeng/gcs-planar-pushing 
-pip install -e /data/locomotion/michzeng/diffusion-policy-experiments
-```
+Controls: `A` starts/saves a recording, `B` discards the current recording and resets, `X` quits, `RT`/`LT` halve/triple the movement speed. Set `data_collection_config.convert_to_zarr=true` (in the config or as a CLI override) to automatically convert the collected trajectories to a zarr dataset once the session ends.
 
 
 
-## Running
+## Running Diffusion Policy Evaluation
 
 ### Setting up the Eval Script
 
@@ -175,21 +142,7 @@ python scripts/launch_eval.py \
     --drop-threshold 0.05
 ```
 
-### Running Parallel Evals on Supercloud:
-```bash
-# Interactively:
-LLsub -i -s 40 -g volta:2
-./submit_launch_eval.sh config/<EXPERIMENT>/all_action_horizons_launch_eval_supercloud.txt
-
-# Non-interactively:
-LLsub ./submit_launch_eval.sh -s 40 -g volta:2 -- config/<EXPERIMENT>/all_action_horizons_launch_eval_supercloud.txt
-```
-
-To monitor eval:
-```bash
-tail -f submit_training.sh.log-XXXX
-```
-
+Here, `num-trials` allows you to set multiple rounds of evaluations; in this example, each checkpoint is run for 50 trials in the first round, and checkpoint files not within 5% success rate (`drop-threshold`) of the best-performing checkpoint is dropped. Then, 50 trials are run in the second round, etc.
 
 
 ## Notes About the Current Parallism Model
@@ -199,3 +152,25 @@ Currently, `run_sim_sim_eval.py` is completely serial, executing trials sequenti
 `launch_eval.py`, which is called with a number of GPU's and a degree of parallelism for each GPU, invokes all the parallelism. It then launches one instance of `run_sim_sim_eval.py` per parallel thread. Thus, parallelism primarily helps in multi-job evals.
 
 If you only have one job (i.e. one checkpoint and a single line your CSV config file), then the current parallelism model doesn't help at all. Additionally, you have a straggler job that takes much longer than the rest (i.e. if one action horizon has much lower success rate), no parallelism will be used to help that straggler finish.
+
+
+
+
+
+
+## Running the GCS Planner
+
+`scripts/run_sim_sim_gcs_planner.py` runs the Graph-of-Convex-Sets (GCS) motion planner as an automated (non-diffusion-policy) controller, either for standalone evaluation or as an automated data collection source:
+
+```bash
+python scripts/run_sim_sim_gcs_planner.py --config-dir=config/sim_config/sim_sim --config-name=gcs_planner
+```
+
+Set `collect_data=true` (in the config or as a CLI override) to save each successful trial's state/action/image data and write it out to a zarr dataset (`data_collection_config.zarr_path`) once all trials finish.
+
+This planner is a work-in-progress, and works well for simple objects like squares but currently not for a T. These instructions are not guaranteed to work.
+
+
+
+
+
