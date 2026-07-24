@@ -18,6 +18,7 @@ Example usage:
 """
 
 import argparse
+import gc
 import os
 import random
 import time
@@ -31,6 +32,7 @@ from pydrake.all import Meshcat
 from torch.distributions.normal import Normal
 
 import wandb
+from tqdm import tqdm
 from rl_push_t.envs.push_t_gym_env import PushTDrakeEnv
 
 # ── Neural network ─────────────────────────────────────────────────────────────
@@ -96,7 +98,20 @@ def parse_args():
     parser.add_argument(
         "--resume",
         action="store_true",
-        help="Auto-resume from latest.ckpt in the run directory if it exists",
+        help="Auto-resume from latest.ckpt in the most recent run directory",
+    )
+    parser.add_argument(
+        "--resume_run",
+        type=str,
+        default=None,
+        metavar="RUN_NAME",
+        help="Resume from this exact run directory name, e.g. push_t_ppo_4 (implies --resume)",
+    )
+    parser.add_argument(
+        "--reset_optimizer",
+        action="store_true",
+        help="Discard the saved optimizer state when resuming (use after reward/hyperparameter changes; "
+             "do NOT use for plain pre-emption resumes)",
     )
 
     # Env
@@ -118,7 +133,7 @@ def parse_args():
     parser.add_argument("--norm_adv", action="store_true", default=True)
     parser.add_argument("--clip_coef", type=float, default=0.2)
     parser.add_argument("--clip_vloss", action="store_true")
-    parser.add_argument("--ent_coef", type=float, default=0.005)
+    parser.add_argument("--ent_coef", type=float, default=0.02)
     parser.add_argument("--vf_coef", type=float, default=0.5)
     parser.add_argument("--max_grad_norm", type=float, default=0.5)
     parser.add_argument("--target_kl", type=float, default=0.1)
@@ -155,28 +170,34 @@ def evaluate(
     instance for recording if one is not passed in.
     """
     print(f"Running evaluation for {num_episodes} episodes...")
-    # Use provided meshcat or create a local one just for recording
     eval_meshcat = meshcat if meshcat is not None else (Meshcat() if recording_path is not None else None)
 
-    envs = gym.vector.SyncVectorEnv([make_env(cfg_path, meshcat=eval_meshcat)])
-    obs, _ = envs.reset()
-    obs = torch.tensor(obs, dtype=torch.float32, device=device)
-
+    env = PushTDrakeEnv(cfg_path=cfg_path, meshcat=eval_meshcat)
     if eval_meshcat is not None:
+        # _setup_simulation sets realtime_rate=1.0 whenever meshcat is present (for live debug
+        # viewing), but recording doesn't need real-time — frames are keyed by sim time.
+        env._simulator.set_target_realtime_rate(0)
         eval_meshcat.StartRecording()
 
     successes = []
     overlaps = []
+    # Accumulate sim time across episodes so Meshcat frames are at unique timestamps
+    # and all episodes appear sequentially in the recorded HTML.
+    time_offset = 0.0
 
     with torch.no_grad():
-        # Continue stepping until we have num_episodes records
-        while len(successes) < num_episodes:
-            action, _, _, _ = agent.get_action_and_value(obs)
-            obs_np, _, terminated, truncated, infos = envs.step(action.cpu().numpy())
-            obs = torch.tensor(obs_np, dtype=torch.float32, device=device)
-            if terminated[0] or truncated[0]:
-                successes.append(float(infos["success"][0]))
-                overlaps.append(float(infos["overlap"][0]))
+        for _ in range(num_episodes):
+            obs_np, _ = env.reset(options={"time_offset": time_offset})
+            obs = torch.tensor(obs_np[np.newaxis], dtype=torch.float32, device=device)
+            done = False
+            while not done:
+                action, _, _, _ = agent.get_action_and_value(obs)
+                obs_np, _, terminated, truncated, info = env.step(action[0].cpu().numpy())
+                obs = torch.tensor(obs_np[np.newaxis], dtype=torch.float32, device=device)
+                done = terminated or truncated
+            successes.append(float(info["success"]))
+            overlaps.append(float(info["overlap"]))
+            time_offset = env._current_sim_time
 
     if eval_meshcat is not None:
         eval_meshcat.StopRecording()
@@ -188,7 +209,13 @@ def evaluate(
 
     sr, ov = float(np.mean(successes)), float(np.mean(overlaps))
     print(f"  [eval] success_rate={sr:.3f}  mean_overlap={ov:.3f}")
-    envs.close()
+    env.close()
+    # Force synchronous Drake cleanup on the main thread before eval_meshcat goes out of
+    # scope. Drake's C++ systems hold internal shared_ptr<Meshcat::Impl> refs; without
+    # this, those refs may be released from a Drake background thread, causing
+    # ~Impl() to be called from the wrong thread and triggering an assertion crash.
+    del env
+    gc.collect()
     return sr, ov
 
 
@@ -214,17 +241,21 @@ def main():
 
     exp_name = args.exp_name or "push_t_ppo"
 
-    # Find the next available run number
-    run_num = 1
-    if not args.resume:
-        while os.path.exists(os.path.join(args.log_dir, f"{exp_name}_{run_num}")):
-            run_num += 1
+    if args.resume_run is not None:
+        # Exact run specified — bypass auto-discovery
+        run_name = args.resume_run
+        args.resume = True
     else:
-        # When resuming, find the latest existing run
-        while os.path.exists(os.path.join(args.log_dir, f"{exp_name}_{run_num + 1}")):
-            run_num += 1
+        # Find the next available run number (or the latest existing one when resuming)
+        run_num = 1
+        if not args.resume:
+            while os.path.exists(os.path.join(args.log_dir, f"{exp_name}_{run_num}")):
+                run_num += 1
+        else:
+            while os.path.exists(os.path.join(args.log_dir, f"{exp_name}_{run_num + 1}")):
+                run_num += 1
+        run_name = f"{exp_name}_{run_num}"
 
-    run_name = f"{exp_name}_{run_num}"
     log_dir = os.path.join(args.log_dir, run_name)
     os.makedirs(log_dir, exist_ok=True)
 
@@ -232,9 +263,25 @@ def main():
     latest_ckpt_path = os.path.join(log_dir, "latest.ckpt")
     resume_ckpt = None
     if args.resume and os.path.isfile(latest_ckpt_path):
-        print(f"Found existing checkpoint at {latest_ckpt_path}, resuming...")
-        args.checkpoint = latest_ckpt_path
-        resume_ckpt = torch.load(latest_ckpt_path, map_location="cpu")
+        try:
+            print(f"Found existing checkpoint at {latest_ckpt_path}, resuming...")
+            args.checkpoint = latest_ckpt_path
+            resume_ckpt = torch.load(latest_ckpt_path, map_location="cpu")
+        except Exception as e:
+            print(f"WARNING: latest.ckpt is corrupted ({e}). Searching for most recent numbered checkpoint...")
+            import glob
+            numbered = sorted(glob.glob(os.path.join(log_dir, "model_*.pt")), key=os.path.getmtime, reverse=True)
+            resume_ckpt = None
+            for fallback in numbered:
+                try:
+                    resume_ckpt = torch.load(fallback, map_location="cpu")
+                    args.checkpoint = fallback
+                    print(f"Falling back to {fallback}")
+                    break
+                except Exception:
+                    continue
+            if resume_ckpt is None:
+                print("No valid checkpoint found; starting from scratch.")
     elif args.resume:
         print("--resume passed but no latest.ckpt found; starting from scratch.")
 
@@ -280,7 +327,7 @@ def main():
     if args.checkpoint is not None:
         ckpt = torch.load(args.checkpoint, map_location=device)
         agent.load_state_dict(ckpt["agent_state_dict"])
-        if "optimizer_state_dict" in ckpt:
+        if "optimizer_state_dict" in ckpt and not args.reset_optimizer:
             optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         if "iteration" in ckpt:
             start_iteration = ckpt["iteration"]
@@ -288,15 +335,17 @@ def main():
             start_global_step = ckpt["global_step"]
         print(
             f"Loaded checkpoint from {args.checkpoint} (iteration={start_iteration}, global_step={start_global_step})"
+            + (" [optimizer state reset]" if args.reset_optimizer else "")
         )
 
     if args.evaluate:
+        eval_meshcat = meshcat if args.debug else Meshcat()
         sr, ov = evaluate(
             agent,
             args.cfg_path,
             args.num_eval_episodes,
             device,
-            meshcat=meshcat,
+            meshcat=eval_meshcat,
             recording_path=os.path.join(log_dir, "eval.html"),
         )
         envs.close()
@@ -333,14 +382,15 @@ def main():
             args.cfg_path,
             args.num_eval_episodes,
             device,
-            meshcat=meshcat,
             recording_path=os.path.join(log_dir, "eval_0.html"),
         )
         wandb.log({"eval/success_rate": sr, "eval/mean_overlap": ov}, step=0)
     else:
         print(f"Resuming from iteration {start_iteration}, global_step {global_step}")
 
-    for iteration in range(start_iteration + 1, num_iterations + 1):
+    print(f"Training for {num_iterations} iterations...")
+    pbar = tqdm(range(start_iteration + 1, num_iterations + 1), initial=start_iteration, total=num_iterations, desc="Training")
+    for iteration in pbar:
         # Optional learning rate annealing
         if args.anneal_lr:
             frac = 1.0 - (iteration - 1) / num_iterations
@@ -466,12 +516,10 @@ def main():
             log["train/episodic_length"] = np.mean(ep_lengths)
         wandb.log(log, step=global_step)
 
-        if iteration % 10 == 0:
-            print(
-                f"iter={iteration}/{num_iterations} | step={global_step} | SPS={sps} | ep_ret={np.mean(ep_returns):.3f}"
-                if ep_returns
-                else ""
-            )
+        postfix = {"step": global_step, "SPS": sps, "v_loss": f"{v_loss.item():.3f}"}
+        if ep_returns:
+            postfix["ep_ret"] = f"{np.mean(ep_returns):.1f}"
+        pbar.set_postfix(postfix)
 
         # ── Periodic evaluation ───────────────────────────────────────────────
         if iteration % args.eval_freq == 0:
@@ -480,19 +528,19 @@ def main():
                 args.cfg_path,
                 args.num_eval_episodes,
                 device,
-                meshcat=meshcat,
                 recording_path=os.path.join(log_dir, f"eval_{global_step}.html"),
             )
             wandb.log({"eval/success_rate": sr, "eval/mean_overlap": ov}, step=global_step)
+            pbar.write(f"  [eval] success_rate={sr:.3f}  mean_overlap={ov:.3f}")
 
         # ── Save checkpoint ───────────────────────────────────────────────────
-        if args.save_model and iteration % 100 == 0:
+        if args.save_model and iteration % 10 == 0:
             model_path = os.path.join(log_dir, f"model_{iteration}.pt")
             _save_checkpoint(model_path, agent, optimizer, obs_dim, act_dim, args, iteration, global_step, wandb_run_id)
             _save_checkpoint(
                 latest_ckpt_path, agent, optimizer, obs_dim, act_dim, args, iteration, global_step, wandb_run_id
             )
-            print(f"  Saved checkpoint: {model_path} + latest.ckpt")
+            pbar.write(f"  Saved checkpoint: {model_path} + latest.ckpt")
 
     # Final save
     if args.save_model:

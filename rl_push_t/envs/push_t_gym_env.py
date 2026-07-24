@@ -79,6 +79,7 @@ class PushTDrakeEnv(Env):
         # Episode tracking
         self._current_sim_time = 0.0
         self._step_count = 0
+        self._prev_dist_T = 0.0
 
     def _setup_simulation(self, cfg_path: str, meshcat=None):
         """Build the Drake diagram. Called once in __init__."""
@@ -101,6 +102,10 @@ class PushTDrakeEnv(Env):
             sim_config=self._sim_config,
             station_meshcat=meshcat,
         )
+
+        # Visualize the target slider pose in Meshcat when available
+        if meshcat is not None:
+            self._environment.visualize_desired_slider_pose()
 
         # Cache frequently used references
         self._plant = self._environment._plant
@@ -159,8 +164,11 @@ class PushTDrakeEnv(Env):
         Dense reward ported from ManiSkill planar_push_t.py:554-598.
         Normalized to [0, 1] (max reward = 1.0 on success).
 
-        obs is the relative observation:
-          [pusher_rel_x, pusher_rel_y, slider_rel_x, slider_rel_y, cos(rel_theta), sin(rel_theta)]
+        obs layout (all positions relative to the goal pose, i.e. value=0 means at goal):
+          [pusher_x - goal_x, pusher_y - goal_y,       # obs[0:2]  pusher position rel. to goal
+           slider_x - goal_x, slider_y - goal_y,       # obs[2:4]  slider position rel. to goal
+           cos(slider_theta - goal_theta),              # obs[4]
+           sin(slider_theta - goal_theta)]              # obs[5]
 
         If debug=True, prints all reward components on a single overwritten line.
         """
@@ -168,18 +176,22 @@ class PushTDrakeEnv(Env):
         slider_rel_x, slider_rel_y = obs[2], obs[3]
 
         # Rotational alignment: peaks at 1/2 when slider matches goal orientation, 0 when 180° off
-        # obs[4] = cos(slider_theta - goal_theta), which is exactly what rot_rew needs
-        rot_component = ((obs[4] + 1.0) / 2.0) ** 2 / 2.0
+        # obs[4] = cos(slider_theta - goal_theta)
+        rot_component = (obs[4] + 1.0) * 1.0
 
         # Translational alignment: peaks at 1/2 when slider is at goal position, decays with distance
         dist_T = np.hypot(slider_rel_x, slider_rel_y)
-        trans_component = ((1.0 - np.tanh(5.0 * dist_T)) ** 2) / 2.0
+        trans_component = ((1.0 - np.tanh(2.5 * dist_T)) ** 2) * 1.0
 
         # End-effector proximity: small bonus encouraging the pusher to stay close to the slider
         dist_push = np.hypot(pusher_rel_x - slider_rel_x, pusher_rel_y - slider_rel_y)
-        ee_component = max(1.0 - np.tanh(5.0 * dist_push), 0.0) / 1.0
+        ee_component = max(1.0 - np.tanh(4.0 * dist_push), 0.0) * 0.25
 
-        reward = rot_component + trans_component + ee_component
+        # Potential-based shaping: reward T moving closer to the goal this step.
+        # Provides dense gradient even when the T is far from the goal
+        shaping_reward = (self._prev_dist_T - dist_T) * 4.0
+
+        reward = (rot_component + trans_component + ee_component) / 3.0 + shaping_reward
 
         # Overlap-based success check (needs absolute coordinates)
         slider_x = slider_rel_x + self._slider_goal_pose.x
@@ -200,13 +212,13 @@ class PushTDrakeEnv(Env):
         if debug:
             print(
                 f"\r  rot={rot_component:.3f}  trans={trans_component:.3f}"
-                f"  ee={ee_component:.3f}  total={reward / 3.0:.3f}"
+                f"  ee={ee_component:.3f}  shaping={shaping_reward:.3f}  total={reward:.3f}"
                 f"  overlap={overlap:.3f}  success={success}     ",
                 end="",
                 flush=True,
             )
 
-        return reward / 3.0, success, overlap
+        return reward, success, overlap
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -225,9 +237,12 @@ class PushTDrakeEnv(Env):
 
         self._rl_source.set_action(np.array([self._pusher_start_pose.x, self._pusher_start_pose.y]))
 
-        # Reset sim time and step count
+        # time_offset lets callers (e.g. multi-episode eval recording) keep Drake's
+        # sim clock monotonically increasing so Meshcat frames don't overwrite each other.
+        time_offset = float((options or {}).get("time_offset", 0.0))
+
         context = self._simulator.get_mutable_context()
-        context.SetTime(0.0)
+        context.SetTime(time_offset)
 
         # Set initial robot + slider positions BEFORE Initialize so that:
         # (a) IiwaPlanner.Initialize reads q0 = default_joint_positions
@@ -246,11 +261,12 @@ class PushTDrakeEnv(Env):
         self._environment._robot_system._planner.force_pushing_mode(self._simulator.get_mutable_context())
 
         # Advance a single timestep so Drake initializes all state properly
-        self._simulator.AdvanceTo(self._sim_config.time_step)
-        self._current_sim_time = self._sim_config.time_step
+        self._simulator.AdvanceTo(time_offset + self._sim_config.time_step)
+        self._current_sim_time = time_offset + self._sim_config.time_step
         self._step_count = 0
 
         obs = self._get_obs()
+        self._prev_dist_T = float(np.hypot(obs[2], obs[3]))
         return obs, {}
 
     def step(self, action: np.ndarray):
@@ -277,6 +293,7 @@ class PushTDrakeEnv(Env):
 
         obs = self._get_obs()
         reward, success, overlap = self._compute_reward(obs)
+        self._prev_dist_T = float(np.hypot(obs[2], obs[3]))
         terminated = success
         truncated = self._step_count >= self._rl_cfg.get("max_episode_steps", 200)
         info = {"overlap": overlap, "success": success}

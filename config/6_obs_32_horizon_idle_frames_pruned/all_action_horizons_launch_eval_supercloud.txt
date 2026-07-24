@@ -1,0 +1,7 @@
+# LLsub ./submit_launch_eval.sh -s 40 -g volta:2 -- config/6_obs_32_horizon_idle_frames_pruned/all_action_horizons_launch_eval_supercloud.txt "100,100,300"
+checkpoint_path,run_dir,config_name,overrides
+/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/6_obs_32_horizon_idle_frames_pruned,eval/sim_sim/6_obs_32_horizon_idle_frames_pruned/v2/T_a_1,gamepad_teleop_carbon.yaml,diffusion_policy_config.cfg_overrides.n_action_steps=1
+/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/6_obs_32_horizon_idle_frames_pruned,eval/sim_sim/6_obs_32_horizon_idle_frames_pruned/v2/T_a_2,gamepad_teleop_carbon.yaml,diffusion_policy_config.cfg_overrides.n_action_steps=2
+/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/6_obs_32_horizon_idle_frames_pruned,eval/sim_sim/6_obs_32_horizon_idle_frames_pruned/v2/T_a_4,gamepad_teleop_carbon.yaml,diffusion_policy_config.cfg_overrides.n_action_steps=4
+/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/6_obs_32_horizon_idle_frames_pruned,eval/sim_sim/6_obs_32_horizon_idle_frames_pruned/v2/T_a_6,gamepad_teleop_carbon.yaml,diffusion_policy_config.cfg_overrides.n_action_steps=6
+/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/6_obs_32_horizon_idle_frames_pruned,eval/sim_sim/6_obs_32_horizon_idle_frames_pruned/v2/T_a_7,gamepad_teleop_carbon.yaml,diffusion_policy_config.cfg_overrides.n_action_steps=7
