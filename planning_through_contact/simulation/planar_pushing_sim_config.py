@@ -44,13 +44,15 @@ class MultiRunConfig:
         workspace_height: float,
         trans_tol: float = 0.01,
         rot_tol: float = 0.01,  # degrees
+        pusher_pos_tol: float = 0.04,
         evaluate_final_pusher_position: bool = True,
         evaluate_final_slider_rotation: bool = True,
         success_criteria: str = "tolerance",
         dataset_path: str = None,
         convex_hull_scale: float = 1.0,
         slider_physical_properties: PhysicalProperties = None,
-        num_trials_to_record: int = 0,
+        num_trials_to_record=0,
+        trials_per_recording_file: int = 20,
     ):
         # Define workspace for initial slider pose
         workspace = PlanarPushingWorkspace(
@@ -67,12 +69,14 @@ class MultiRunConfig:
         self.max_attempt_duration = max_attempt_duration
         self.trans_tol = trans_tol
         self.rot_tol = rot_tol
+        self.pusher_pos_tol = pusher_pos_tol
         self.evaluate_final_pusher_position = evaluate_final_pusher_position
         self.evaluate_final_slider_rotation = evaluate_final_slider_rotation
         self.success_criteria = success_criteria
         self.dataset_path = dataset_path
         self.convex_hull_scale = convex_hull_scale
         self.num_trials_to_record = num_trials_to_record
+        self.trials_per_recording_file = trials_per_recording_file
 
     def __str__(self):
         slider_pose_str = f"initial_slider_poses: {self.initial_slider_poses}"
@@ -90,11 +94,13 @@ class MultiRunConfig:
             and self.max_attempt_duration == other.max_attempt_duration
             and self.trans_tol == other.trans_tol
             and self.rot_tol == other.rot_tol
+            and self.pusher_pos_tol == other.pusher_pos_tol
             and self.evaluate_final_pusher_position == other.evaluate_final_pusher_position
             and self.evaluate_final_slider_rotation == other.evaluate_final_slider_rotation
             and self.success_criteria == other.success_criteria
             and self.dataset_path == other.dataset_path
             and self.num_trials_to_record == other.num_trials_to_record
+            and self.trials_per_recording_file == other.trials_per_recording_file
             and self.convex_hull_scale == other.convex_hull_scale
         )
 
@@ -112,6 +118,7 @@ class PlanarPushingSimConfig:
     use_realtime: bool = False
     delay_before_execution: float = 5.0
     save_plots: bool = False
+    save_gcs_videos: bool = True
     diffusion_policy_config: DiffusionPolicyConfig = None
     scene_directive_name: str = "planar_pushing_iiwa_plant_hydroelastic.yaml"
     use_hardware: bool = False
@@ -195,6 +202,7 @@ class PlanarPushingSimConfig:
             use_realtime=cfg.use_realtime,
             delay_before_execution=cfg.delay_before_execution,
             save_plots=cfg.save_plots,
+            save_gcs_videos=cfg.get("save_gcs_videos", True),
             scene_directive_name=scene_directive_name,
             use_hardware=cfg.use_hardware,
             pusher_radius=cfg.pusher_radius,
@@ -362,6 +370,7 @@ class PlanarPushingSimConfig:
             and self.use_realtime == other.use_realtime
             and self.delay_before_execution == other.delay_before_execution
             and self.save_plots == other.save_plots
+            and self.save_gcs_videos == other.save_gcs_videos
             and self.scene_directive_name == other.scene_directive_name
             and self.use_hardware == other.use_hardware
             and self.pusher_z_offset == other.pusher_z_offset

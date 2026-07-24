@@ -183,6 +183,7 @@ class IiwaHardwareStation(RobotSystemBase):
                         rot_tol=sim_config.multi_run_config.rot_tol,
                         evaluate_final_slider_rotation=True,
                         evaluate_final_pusher_position=True,
+                        pusher_pos_tol=sim_config.multi_run_config.pusher_pos_tol,
                     )
                 )
 
@@ -216,6 +217,7 @@ class IiwaHardwareStation(RobotSystemBase):
                 velocity_limit_factor * IIWA7_VELOCITY_LIMITS,
             )
         )
+        ik_params.set_joint_position_limits((robot.GetPositionLowerLimits(), robot.GetPositionUpperLimits()))
         ik_params.set_nominal_joint_position(self._sim_config.default_joint_positions)
         ik_params.set_joint_centering_gain(np.eye(robot.num_positions()))
         self._diff_ik = builder.AddNamedSystem(
@@ -477,7 +479,8 @@ class IiwaHardwareStation(RobotSystemBase):
 
         builder.BuildInto(self)
 
-        set_meshcat_camera_pose(self._meshcat, self._sim_config)  # For meshcat visualization
+        if self._meshcat is not None:
+            set_meshcat_camera_pose(self._meshcat, self._sim_config)  # For meshcat visualization
 
         # # Add triad to visualize pusher end effector
         # AddMultibodyTriad(

@@ -607,7 +607,7 @@ class ArbitraryShape2D(CollisionGeometry):
         assert np.all([t == "box" for t in primitive_types]), f"Only boxes are supported. Got: {primitive_types}"
         if self.com is not None:
             return np.array([self.com[0], self.com[1]]).reshape((2, 1))
-        logging.warning("COM not provided. Computing from uniform density.")
+        # logging.warning("COM not provided. Computing from uniform density.")
         x_com, y_com = compute_com_from_uniform_density(boxes)
         return np.array([x_com, y_com]).reshape((2, 1))
 

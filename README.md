@@ -23,10 +23,16 @@ export PATH="/home/$USER/.local/bin:$PATH"
 ```
 
 3. **Modify `pyproject.toml`**:
-For the project to run the diffusion policy, it must have access to the diffusion policy repo as well as a trained model checkpoint. Clone [my diffusion policy repo](https://github.com/Michaelszeng/diffusion-policy-experiments), follow the instructions to run training for the planar pushing example, then modify this line in `pyproject.toml` to point to wherever you cloned your repo:
+For the project to run the diffusion policy, it must have access to the diffusion policy repo as well as a trained model checkpoint. Clone [my diffusion policy repo](https://github.com/Michaelszeng/diffusion-policy-experiments), follow the instructions to run training for the planar pushing example, then modify this line in `pyproject.toml` to point to wherever you cloned the repo:
 
 ```
 diffusion-policy = {path = "/home/michzeng/diffusion-policy", develop = true}
+```
+
+To run the GCS planner (for data generation), the project must have access to my fork of the `planning-through-contact` repository. Clone [my `planning-through-contact` repo](https://github.com/Michaelszeng/planning-through-contact), then modify this line in `pyproject.toml` to point to wherever you cloned the repo:
+
+```
+gcs-planner = {path = "/home/michzeng/planning-through-contact", develop = true}
 ```
 
 4. **If using a custom installation of drake**:
@@ -94,6 +100,20 @@ Modify the path to your license file in `submit_run_sim_sim_eval.sh` and `submit
 
 ```bash
 export MOSEKLM_LICENSE_FILE=/home/gridsan/mzeng/mosek.lic
+```
+
+### MIT CSAIL SLURM Cluster Installation:
+
+```bash
+python3 -m venv env --without-pip
+source env/bin/activate
+curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+python3 /tmp/get-pip.py --no-warn-script-location
+pip install -r requirements.txt
+
+pip install -e .
+pip install -e /data/locomotion/michzeng/gcs-planar-pushing 
+pip install -e /data/locomotion/michzeng/diffusion-policy-experiments
 ```
 
 

@@ -1,5 +1,8 @@
 job_timeline.png
 
+# RL training outputs
+rl_push_t/runs/
+
 # Generated files
 demos/
 trajectories/
@@ -16,6 +19,10 @@ eval/
 wandb/
 *.mp4
 *.sh.log-*
+*.pkl
+*.html
+temp*
+trajectories_mpc*
 
 
 # Vim
@@ -59,6 +66,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+logs/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -133,6 +141,9 @@ celerybeat.pid
 
 # SageMath parsed files
 *.sage.py
+
+# Secrets
+.secrets
 
 # Environments
 .env

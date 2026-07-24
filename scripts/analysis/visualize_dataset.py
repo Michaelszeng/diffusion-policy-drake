@@ -1,3 +1,23 @@
+"""
+Example usage:
+
+Display videos interactively
+python scripts/analysis/visualize_dataset.py \
+    --zarr-path ~/diffusion-policy/data/diffusion_experiments/planar_pushing/sim_sim_tee_data_carbon_large.zarr \
+    --fps 30 \
+    --stride 1 \
+    --image-size 640x480
+
+Save videos to disk at 2x speed
+python scripts/analysis/visualize_dataset.py \
+    --zarr-path ~/diffusion-policy/data/diffusion_experiments/planar_pushing/sim_sim_tee_data_carbon_large.zarr \
+    --fps 30 \
+    --stride 1 \
+    --image-size 640x480 \
+    --output-path ./videos \
+    --playback-speed 0.5
+"""
+
 import argparse
 import os
 
@@ -75,24 +95,6 @@ def play_trajectory_videos(zarr_path, fps, stride=1, image_size=None, output_pat
 
 
 if __name__ == "__main__":
-    """
-    Example usage:
-    # Display videos interactively
-    python scripts/analysis/visualize_dataset.py \
-        --zarr-path ~/workspace/gcs-diffusion/data/planar_pushing_cotrain/sim_tee_data.zarr \
-        --fps 30 \
-        --stride 1 \
-        --image-size 640x480
-
-    # Save videos to disk at 2x speed
-    python scripts/analysis/visualize_dataset.py \
-        --zarr-path ~/workspace/gcs-diffusion/data/planar_pushing_cotrain/sim_tee_data.zarr \
-        --fps 30 \
-        --stride 1 \
-        --image-size 640x480 \
-        --output-path ./videos \
-        --playback-speed 0.5
-    """
     parser = argparse.ArgumentParser(description="Play trajectory videos from a Zarr dataset.")
     parser.add_argument("--zarr-path", type=str, required=True, help="Path to the Zarr dataset.")
     parser.add_argument("--fps", type=int, default=30, help="Frames per second for the video.")

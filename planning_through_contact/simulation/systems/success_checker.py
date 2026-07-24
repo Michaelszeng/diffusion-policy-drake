@@ -134,6 +134,7 @@ def check_success_tolerance(
     evaluate_final_slider_rotation: bool = True,
     evaluate_final_pusher_position: bool = True,
     return_separate: bool = False,
+    pusher_pos_tol: float = 0.04,
 ) -> bool:
     """
     Global helper function to check if slider and pusher meet success criteria.
@@ -148,6 +149,7 @@ def check_success_tolerance(
         evaluate_final_slider_rotation: Whether to check slider orientation
         evaluate_final_pusher_position: Whether to check pusher position
         return_separate: If True, return (slider_success, pusher_success) tuple instead of combined bool
+        pusher_pos_tol: Translational tolerance for pusher position in meters
 
     Returns:
         If return_separate=False: True if success criteria are met, False otherwise
@@ -165,9 +167,7 @@ def check_success_tolerance(
 
     # pusher
     pusher_error = pusher_goal_pose.vector() - pusher_pose.vector()
-    # Note: pusher goal criterion is intentionally very lenient
-    # since the teleoperator (me) did a poor job as well, oops :) oops
-    reached_goal_pusher_position = np.linalg.norm(pusher_error[:2]) <= 0.04
+    reached_goal_pusher_position = np.linalg.norm(pusher_error[:2]) <= pusher_pos_tol
 
     # Check pusher success
     pusher_success = True
@@ -206,6 +206,7 @@ class SuccessChecker(LeafSystem):
         rot_tol: Rotational tolerance in degrees (tolerance mode, default: 5.0)
         evaluate_final_slider_rotation: Whether to check slider orientation (tolerance mode, default: True)
         evaluate_final_pusher_position: Whether to check pusher position (tolerance mode, default: True)
+        pusher_pos_tol: Translational tolerance for pusher position in meters (tolerance mode, default: 0.04)
     """
 
     def __init__(
@@ -220,6 +221,7 @@ class SuccessChecker(LeafSystem):
         rot_tol: float = 5.0,
         evaluate_final_slider_rotation: bool = True,
         evaluate_final_pusher_position: bool = True,
+        pusher_pos_tol: float = 0.04,
     ):
         super().__init__()
         self._plant = plant
@@ -232,6 +234,7 @@ class SuccessChecker(LeafSystem):
         self._pusher_goal_pose = pusher_goal_pose
         self._trans_tol = float(trans_tol)
         self._rot_tol = float(rot_tol)
+        self._pusher_pos_tol = float(pusher_pos_tol)
         self._evaluate_final_slider_rotation = evaluate_final_slider_rotation
         self._evaluate_final_pusher_position = evaluate_final_pusher_position
 
@@ -287,6 +290,7 @@ class SuccessChecker(LeafSystem):
                 self._evaluate_final_slider_rotation,
                 self._evaluate_final_pusher_position,
                 return_separate=True,
+                pusher_pos_tol=self._pusher_pos_tol,
             )
         else:  # convex_hull mode
             slider_success, pusher_success = check_success_convex_hull(
