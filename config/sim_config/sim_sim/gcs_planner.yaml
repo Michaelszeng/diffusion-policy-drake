@@ -10,8 +10,8 @@ collect_data: false
 ### PlanarPushingSimConfig
 ########################################################################################################################
 slider_type: 'arbitrary'
-# arbitrary_shape_pickle_path: arbitrary_shape_pickles/small_t_pusher.pkl
-arbitrary_shape_pickle_path: arbitrary_shape_pickles/square_pusher.pkl
+arbitrary_shape_pickle_path: arbitrary_shape_pickles/small_t_pusher.pkl
+# arbitrary_shape_pickle_path: arbitrary_shape_pickles/square_pusher.pkl
 arbitrary_shape_rgba: [0.15, 0.15, 0.15, 1.0]
 arbitrary_shape_visual_mesh_path: null # Can be null (collision mesh will be used)
 physical_properties: # Slider physical properties
@@ -135,6 +135,7 @@ multi_run_config:
   slider_physical_properties: ${physical_properties}
   # num_trials_to_record: 3
   num_trials_to_record: "all" # number of trials to record in the meshcat recording; int or "all"
+  trials_per_recording_file: 1 # number of trials to record per meshcat recording file
 
 ########################################################################################################################
 ### Robot specific configs

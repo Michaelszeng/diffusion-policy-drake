@@ -48,7 +48,7 @@ from planning_through_contact.visualize.analysis import (
     PlanarPushingLog,
 )
 
-TRIALS_TO_SKIP = []
+TRIALS_TO_SKIP = [0, 1, 2, 3, 4, 5]
 
 ONLY_1_TRIAL = False  # If set to True, also plots the GCS Planner logs for the 1st trial
 
@@ -215,6 +215,16 @@ class SimSimGcsPlanner:
                         self.environment._desired_position_source._gcs_planner._ready = False
                         self.environment.set_slider_planar_pose(slider_pose)
 
+                        # Prime current_action before the loop so that when run_flag first
+                        # becomes True (DiffIK activates), the GCS planner outputs
+                        # pusher_start_pose rather than a stale command from the previous
+                        # trial (or [0,0] on the first trial). Without this, the DiffIK
+                        # drives the pusher one step in the wrong direction, causing a
+                        # visible shift at the start of every episode.
+                        self.environment._desired_position_source._gcs_planner._current_action = np.array(
+                            [self.pusher_start_pose.x, self.pusher_start_pose.y]
+                        )
+
                         # Simulate until run_flag is True (IiwaPlanner reaches pushing mode)
                         while True:
                             current_time += time_step
@@ -260,7 +270,7 @@ class SimSimGcsPlanner:
                             print(f"Trial {trial_idx} Result: SUCCESS")
                             trial_done = True
 
-                            summary["successful_trials"].append(trial_idx)
+                            summary["successful_trials"].append(len(summary["final_error"]))
                             summary["trial_result"].append(Result.SUCCESS.value)
                             summary["trial_times"].append(current_time - self.traj_start_time)
                             break
@@ -295,7 +305,7 @@ class SimSimGcsPlanner:
                         trial_success = True
                         print(f"Trial {trial_idx} Result: SUCCESS (ended with error: {e})")
 
-                        summary["successful_trials"].append(trial_idx)
+                        summary["successful_trials"].append(len(summary["final_error"]))
                         summary["trial_result"].append(Result.SUCCESS.value)
                         summary["trial_times"].append(current_time - self.traj_start_time)
                     else:
@@ -311,6 +321,7 @@ class SimSimGcsPlanner:
                     # Drake's last_known_simtime_ is left inconsistent, causing every subsequent
                     # AdvanceTo() call to fail with "Simulation time has changed".
                     self.environment._simulator.Initialize()
+                    current_time = self.environment._simulator.get_context().get_time()
 
                 finally:
                     if ONLY_1_TRIAL:

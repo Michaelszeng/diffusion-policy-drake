@@ -27,6 +27,9 @@ from planning_through_contact.simulation.controllers.diffusion_policy_source imp
 from planning_through_contact.simulation.controllers.gamepad_controller_source import (
     GamepadControllerSource,
 )
+from planning_through_contact.simulation.controllers.replay_position_source import (
+    ReplayPositionSource,
+)
 
 try:
     from planning_through_contact.simulation.controllers.gcs_planner_source import (
@@ -70,6 +73,7 @@ class DesiredPositionSourceType(Enum):
     GCS_PLANNER = "gcs_planner"
     DIFFUSION_POLICY = "diffusion_policy"
     RL = "rl"
+    REPLAY = "replay"
 
 
 class SimulatedRealTableEnvironment:
@@ -88,6 +92,8 @@ class SimulatedRealTableEnvironment:
             self._desired_position_source_type = DesiredPositionSourceType.GCS_PLANNER
         elif isinstance(desired_position_source, GamepadControllerSource):
             self._desired_position_source_type = DesiredPositionSourceType.GAMEPAD
+        elif isinstance(desired_position_source, ReplayPositionSource):
+            self._desired_position_source_type = DesiredPositionSourceType.REPLAY
         elif hasattr(desired_position_source, "set_action"):
             # RLActionSource or any source with a set_action() interface
             self._desired_position_source_type = DesiredPositionSourceType.RL
@@ -132,6 +138,8 @@ class SimulatedRealTableEnvironment:
             DesiredPositionSourceType.GCS_PLANNER,
             DesiredPositionSourceType.DIFFUSION_POLICY,
             DesiredPositionSourceType.RL,
+            DesiredPositionSourceType.GAMEPAD,
+            DesiredPositionSourceType.REPLAY,
         ]:
             self._robot_state_to_rigid_transform = builder.AddNamedSystem(
                 "RobotStateToRigidTransform",

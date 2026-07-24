@@ -217,6 +217,7 @@ class SimSimEval:
                 total_runs=self.multi_run_config.num_runs,
                 output_dir=self.output_dir,
                 file_prefix="eval",
+                trials_per_recording_file=self.multi_run_config.trials_per_recording_file,
             )
             recorder.start()
         self.environment.visualize_desired_slider_pose()
