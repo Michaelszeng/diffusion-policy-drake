@@ -33,13 +33,20 @@ export HYDRA_FULL_ERROR=1
 # Silence LCM error when running on Supercloud
 export LCM_DEFAULT_URL=memq://null
 
+# Limit OpenMP threads to prevent thread exhaustion with many concurrent jobs
+export OMP_NUM_THREADS=2
+
 # Fix lack of X server when running on Supercloud
-export DISPLAY=:99
+# Use job ID to create unique display number
+JOB_ID=${LLSUB_RANK:-$$}  # Use LLSUB_RANK if available, otherwise process ID
+DISPLAY_NUM=$((99 + JOB_ID % 100))  # Offset from 99 to avoid conflicts
+export DISPLAY=:$DISPLAY_NUM
 export LIBGL_ALWAYS_SOFTWARE=1
 export __GLX_VENDOR_LIBRARY_NAME=mesa
 export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
 export GALLIUM_DRIVER=llvmpipe
-Xvfb "$DISPLAY" -screen 0 1400x900x24 -nolisten tcp > /tmp/xvfb.log 2>&1 &  # silence Xvfb output
+echo "[submit_launch_eval.sh] Starting Xvfb on display :$DISPLAY_NUM"
+Xvfb "$DISPLAY" -screen 0 1400x900x24 -nolisten tcp > /tmp/xvfb_${DISPLAY_NUM}.log 2>&1 &  # silence Xvfb output
 xvfb_pid=$!
 trap "kill $xvfb_pid" EXIT
 
@@ -47,7 +54,10 @@ echo "[submit_run_sim_sim_eval.sh] Running eval code..."
 echo "[submit_run_sim_sim_eval.sh] Date: $DATE"
 echo "[submit_run_sim_sim_eval.sh] Time: $TIME"
 
+# Change to the checkpoint you want to test/run
+CHECKPOINT_PATH="/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/6_obs_32_horizon_idle_frames_pruned/checkpoints/epoch=195-val_loss=0.0950-val_ddim_mse=0.000879.ckpt"
+
 python -u scripts/run_sim_sim_eval.py \
     --config-dir=config/sim_config/sim_sim \
     --config-name=gamepad_teleop_carbon \
-    'diffusion_policy_config.checkpoint="/home/gridsan/mzeng/diffusion-policy-experiments/data/outputs/planar_pushing/2_obs/checkpoints/latest.ckpt"'
+    'diffusion_policy_config.checkpoint="${CHECKPOINT_PATH}"'
