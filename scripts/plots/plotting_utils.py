@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
+import numpy as np
+
 # -----------------------------------------------------------------------------
 # Visual constants
 # -----------------------------------------------------------------------------
@@ -63,16 +65,21 @@ class HorizonResult:
     num_trials: int
     checkpoint_dir: Path
     num_checkpoints_available: int = 1  # Number of checkpoints evaluated for this horizon
+    summary_path: Optional[Path] = None  # Path to summary.pkl
 
 
 # -----------------------------------------------------------------------------
 # Helper functions
 # -----------------------------------------------------------------------------
 
-def parse_args(description: str) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=description
-    )
+def parse_args(description: str) -> argparse.ArgumentParser:
+    """
+    Base argument parser with common plotting arguments.
+    
+    Scripts can add their own specific arguments before calling parse_args() on the parser.
+    """
+    parser = argparse.ArgumentParser(description=description)
+    
     parser.add_argument(
         "--experiment-path",
         type=Path,
@@ -97,7 +104,7 @@ def parse_args(description: str) -> argparse.Namespace:
     parser.add_argument(
         "--plot-name",
         type=str,
-        default="Relative Action Horizon Performance",
+        default=None,
         help="Title for the plot (optional).",
     )
     parser.add_argument(
@@ -112,8 +119,8 @@ def parse_args(description: str) -> argparse.Namespace:
         help="Display the figure in an interactive window after saving",
     )
     parser.add_argument("--dpi", type=int, default=300, help="Figure DPI when saving to disk.")
-    parser.add_argument("--all-checkpoints", action="store_true", help="Plot all checkpoints instead of just the best per horizon.")
-    return parser.parse_args()
+    
+    return parser
 
 
 def iter_action_horizon_dirs(experiment_path: Path) -> Iterable[Path]:
@@ -154,6 +161,42 @@ def load_success_rate(summary_path: Path) -> Tuple[float, int]:
     return successes / total, total
 
 
+def load_duration_stats(summary_path: Path, success_only: bool = False) -> Tuple[float, float]:
+    """
+    Return (mean_duration, std_duration) extracted from a ``summary.pkl`` file.
+
+    Args:
+        summary_path: Path to the summary.pkl file.
+        success_only: If True, only consider durations of successful trials.
+
+    Returns:
+        (mean, std) tuple. Returns (nan, nan) if no data available.
+    """
+    with summary_path.open("rb") as handle:
+        summary: Dict = pickle.load(handle)
+
+    trial_times = summary.get("trial_times", [])
+    if not trial_times:
+        return float("nan"), float("nan")
+
+    trial_times = np.array(trial_times, dtype=float)
+
+    if success_only:
+        trial_results = summary.get("trial_result", [])
+        # If trial_result is missing or length mismatch, cannot filter reliably
+        if not trial_results or len(trial_results) != len(trial_times):
+            return float("nan"), float("nan")
+
+        # Filter for success
+        success_mask = [r == "success" for r in trial_results]
+        trial_times = trial_times[success_mask]
+
+    if len(trial_times) == 0:
+        return float("nan"), float("nan")
+
+    return float(np.mean(trial_times)), float(np.std(trial_times))
+
+
 def find_best_checkpoint(horizon_dir: Path) -> Optional[HorizonResult]:
     """Return the *HorizonResult* corresponding to the best checkpoint in *horizon_dir*.
     
@@ -177,7 +220,9 @@ def find_best_checkpoint(horizon_dir: Path) -> Optional[HorizonResult]:
         seen_checkpoints.add(checkpoint_dir.name)
         
         horizon_value = parse_horizon_from_dirname(horizon_dir.name)
-        candidate = HorizonResult(horizon_value, success_rate, total_trials, checkpoint_dir)
+        candidate = HorizonResult(
+            horizon_value, success_rate, total_trials, checkpoint_dir, summary_path=summary_path
+        )
         candidates.append(candidate)
 
     if not candidates:
@@ -239,7 +284,9 @@ def collect_all_checkpoint_results(experiment_path: Path) -> Dict[str, List[Hori
             checkpoint_dir = horizon_dir / relative_path.parts[0]
             checkpoint_name = checkpoint_dir.name
             
-            result = HorizonResult(horizon_value, success_rate, total_trials, checkpoint_dir)
+            result = HorizonResult(
+                horizon_value, success_rate, total_trials, checkpoint_dir, summary_path=summary_path
+            )
             
             if checkpoint_name not in checkpoint_results:
                 checkpoint_results[checkpoint_name] = []

@@ -78,6 +78,20 @@ def make_plot(
     Returns:
         Figure object
     """
+    def compute_wilson_ci(success_rates: np.ndarray, num_trials: np.ndarray) -> np.ndarray:
+        """Compute Wilson 95% confidence intervals and return as yerr format."""
+        ci_bounds = np.array(
+            [
+                smp.proportion_confint(int(p * n), n, alpha=0.05, method="wilson")
+                for p, n in zip(success_rates, num_trials)
+            ],
+            dtype=float,
+        )
+        ci_lo = ci_bounds[:, 0]
+        ci_hi = ci_bounds[:, 1]
+        # Return distances from central value for error bars
+        return np.vstack([np.clip(success_rates - ci_lo, 0, 1), np.clip(ci_hi - success_rates, 0, 1)])
+
     fig, ax = plt.subplots(figsize=(5.0, 4.0))
     ax.set_facecolor("white")
 
@@ -99,23 +113,7 @@ def make_plot(
         success_rates = np.array([res.success_rate for res in results], dtype=float)
         num_trials = np.array([res.num_trials for res in results], dtype=int)
 
-        # Compute Wilson 95% CI per point
-        ci_bounds = np.array(
-            [
-                smp.proportion_confint(int(p * n), n, alpha=0.05, method='wilson')
-                for p, n in zip(success_rates, num_trials)
-            ],
-            dtype=float,
-        )
-        ci_lo = ci_bounds[:, 0]
-        ci_hi = ci_bounds[:, 1]
-        # yerr expects distances from the central value
-        yerr = np.vstack(
-            [
-                np.clip(success_rates - ci_lo, 0, 1),  # lower distances
-                np.clip(ci_hi - success_rates, 0, 1),  # upper distances
-            ]
-        )
+        yerr = compute_wilson_ci(success_rates, num_trials)
 
         # Main line with markers
         ax.plot(
@@ -211,7 +209,13 @@ def make_plot(
 
 def main() -> None:
     description = "Create a success-rate comparison plot across action horizons using evaluation summaries."
-    args = parse_args(description)
+    parser = parse_args(description)
+    parser.add_argument(
+        "--all-checkpoints",
+        action="store_true",
+        help="Plot all checkpoints instead of just the best per horizon."
+    )
+    args = parser.parse_args()
 
     # Handle experiment paths
     experiment_paths = args.experiment_path if isinstance(args.experiment_path, list) else [args.experiment_path]
